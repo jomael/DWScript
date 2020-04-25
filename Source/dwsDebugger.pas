@@ -25,9 +25,8 @@ interface
 
 uses
    Classes, SysUtils,
-   dwsSymbols, dwsXPlatform, dwsCompiler, dwsErrors, dwsDataContext,
-   dwsExprs, dwsCoreExprs, dwsInfo, dwsEvaluate, dwsScriptSource,
-   dwsUtils, dwsXPlatformUI, dwsStrings, dwsUnitSymbols, dwsStack, dwsInfoClasses;
+   dwsSymbols, dwsXPlatform, dwsCompiler, dwsDataContext, dwsExprs,
+   dwsInfo, dwsEvaluate, dwsScriptSource, dwsUtils, dwsUnitSymbols;
 
 type
    TdwsDebugger = class;
@@ -98,15 +97,35 @@ type
          FLine : Integer;
          FSourceName : String;
 
-      protected
-
       public
          constructor Create;
+
+         function ConditionPassed(const debugger : TdwsDebugger) : Boolean; virtual;
+         procedure ClearEvaluators; virtual;
 
          property Enabled : Boolean read FEnabled write FEnabled;
          property Line : Integer read FLine write FLine;
          property SourceName : String read FSourceName write FSourceName;
    end;
+
+   // TdwsDebuggerBreakpointConditional
+   //
+   TdwsDebuggerBreakpointConditional = class (TdwsDebuggerBreakpoint)
+      private
+         FCondition : String;
+         FEvaluator : IdwsEvaluateExpr;
+
+      protected
+         procedure SetCondition(const val : String);
+         procedure InitializeEvaluator(const debugger : TdwsDebugger);
+
+      public
+         function ConditionPassed(const debugger : TdwsDebugger) : Boolean; override;
+         procedure ClearEvaluators; override;
+
+         property Condition : String read FCondition write SetCondition;
+   end;
+
 
    // TdwsDebuggerBreakpoints
    //
@@ -122,13 +141,17 @@ type
          constructor Create(aDebugger : TdwsDebugger);
          destructor Destroy; override;
 
-         procedure Add(aLine : Integer; const aSourceName : String);
+         function Add(aLine : Integer; const aSourceName : String) : TdwsDebuggerBreakpoint;
+         function AddConditional(aLine : Integer; const aSourceName, aCondition : String) : TdwsDebuggerBreakpointConditional;
 
          procedure Clear; inline;
 
-         function BreakpointAt(const scriptPos : TScriptPos) : TdwsDebuggerBreakpoint;
+         function BreakpointAt(const scriptPos : TScriptPos) : TdwsDebuggerBreakpoint; overload;
+         function BreakpointAt(const sourceName : String; sourceLine : Integer) : TdwsDebuggerBreakpoint; overload;
 
          procedure BreakPointsChanged;
+
+         procedure ClearEvaluators;
 
          property Debugger : TdwsDebugger read FDebugger;
    end;
@@ -344,6 +367,7 @@ type
 
          function Evaluate(const expression : String; scriptPos : PScriptPos = nil) : IdwsEvaluateExpr;
          function EvaluateAsString(const expression : String; scriptPos : PScriptPos = nil) : String;
+         function EvaluateAsBoolean(const expression : String; scriptPos : PScriptPos = nil) : Boolean;
 
          function AllowedActions : TdwsDebuggerActions;
 
@@ -387,6 +411,7 @@ type
          function GetSourceLines(const sourceName : String) : TBits; inline;
 
          procedure EnumeratorCallback(parent, expr : TExprBase; var abort : Boolean);
+         procedure SteppableCallback(expr : TExprBase);
          procedure RegisterScriptPos(const scriptPos : TScriptPos);
 
          procedure ProcessProg(const prog : TdwsProgram);
@@ -414,6 +439,8 @@ implementation
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
+
+uses dwsCoreExprs, dwsStack, dwsInfoClasses, dwsStrings, dwsXPlatformUI;
 
 type
    TThreadedDebugger = class (TdwsThread)
@@ -918,9 +945,14 @@ end;
 function TdwsDebugger.EvaluateAsString(const expression : String; scriptPos : PScriptPos = nil) : String;
 var
    expr : IdwsEvaluateExpr;
+   locScriptPos : TScriptPos;
 begin
    if FExecution=nil then Exit(DBG_NotDebugging);
    try
+      if scriptPos = nil then begin
+         locScriptPos := CurrentScriptPos;
+         scriptPos := @locScriptPos;
+      end;
       expr := Evaluate(expression, scriptPos);
       try
          Result := DBG_NoResult;
@@ -936,6 +968,30 @@ begin
    except
       on E : Exception do
          Result:=E.Message;
+   end;
+end;
+
+// EvaluateAsBoolean
+//
+function TdwsDebugger.EvaluateAsBoolean(const expression : String; scriptPos : PScriptPos = nil) : Boolean;
+var
+   expr : IdwsEvaluateExpr;
+begin
+   if FExecution=nil then Exit(False);
+   try
+      expr := Evaluate(expression, scriptPos);
+      try
+         FExecution.SuspendDebug;
+         try
+            Result := expr.Expression.EvalAsBoolean(FExecution.ExecutionObject);
+         finally
+            FExecution.ResumeDebug;
+         end;
+      finally
+         expr := nil;
+      end;
+   except
+      Result := False;
    end;
 end;
 
@@ -1074,6 +1130,70 @@ begin
    FEnabled:=True;
 end;
 
+// ConditionPassed
+//
+function TdwsDebuggerBreakpoint.ConditionPassed(const debugger : TdwsDebugger) : Boolean;
+begin
+   Result := True;
+end;
+
+// ClearEvaluators
+//
+procedure TdwsDebuggerBreakpoint.ClearEvaluators;
+begin
+   // nothing here
+end;
+
+// ------------------
+// ------------------ TdwsDebuggerBreakpointConditional ------------------
+// ------------------
+
+// SetCondition
+//
+procedure TdwsDebuggerBreakpointConditional.SetCondition(const val : String);
+begin
+   FCondition := val;
+   FEvaluator := nil;
+end;
+
+// InitializeEvaluator
+//
+procedure TdwsDebuggerBreakpointConditional.InitializeEvaluator(const debugger : TdwsDebugger);
+var
+   scriptPos : TScriptPos;
+begin
+   scriptPos := debugger.CurrentScriptPos;
+   FEvaluator := debugger.Evaluate(Condition, @scriptPos);
+end;
+
+// ConditionPassed
+//
+function TdwsDebuggerBreakpointConditional.ConditionPassed(const debugger : TdwsDebugger) : Boolean;
+var
+   exec : IdwsProgramExecution;
+begin
+   if FCondition = '' then Exit(True);
+
+   if FEvaluator = nil then
+      InitializeEvaluator(debugger);
+
+   exec := debugger.Execution;
+   exec.SuspendDebug;
+   try
+      Result := FEvaluator.Expression.EvalAsBoolean(exec.ExecutionObject);
+   finally
+      exec.ResumeDebug;
+   end;
+end;
+
+// ClearEvaluators
+//
+procedure TdwsDebuggerBreakpointConditional.ClearEvaluators;
+begin
+   FEvaluator := nil;
+   inherited;
+end;
+
 // ------------------
 // ------------------ TdwsDebuggerBreakpoints ------------------
 // ------------------
@@ -1099,14 +1219,23 @@ end;
 
 // Add
 //
-procedure TdwsDebuggerBreakpoints.Add(aLine : Integer; const aSourceName : String);
-var
-   bp : TdwsDebuggerBreakpoint;
+function TdwsDebuggerBreakpoints.Add(aLine : Integer; const aSourceName : String) : TdwsDebuggerBreakpoint;
 begin
-   bp:=TdwsDebuggerBreakpoint.Create;
-   bp.Line:=aLine;
-   bp.SourceName:=aSourceName;
-   inherited Add(bp);
+   Result := TdwsDebuggerBreakpoint.Create;
+   Result.Line := aLine;
+   Result.SourceName := aSourceName;
+   inherited Add(Result);
+end;
+
+// AddConditional
+//
+function TdwsDebuggerBreakpoints.AddConditional(aLine : Integer; const aSourceName, aCondition : String) : TdwsDebuggerBreakpointConditional;
+begin
+   Result := TdwsDebuggerBreakpointConditional.Create;
+   Result.Line := aLine;
+   Result.SourceName := aSourceName;
+   Result.Condition := aCondition;
+   inherited Add(Result);
 end;
 
 // Clear
@@ -1128,14 +1257,21 @@ end;
 // BreakpointAt
 //
 function TdwsDebuggerBreakpoints.BreakpointAt(const scriptPos : TScriptPos) : TdwsDebuggerBreakpoint;
+begin
+   Result := BreakpointAt(scriptPos.SourceFile.Name, scriptPos.Line);
+end;
+
+// BreakpointAt
+//
+function TdwsDebuggerBreakpoints.BreakpointAt(const sourceName : String; sourceLine : Integer) : TdwsDebuggerBreakpoint;
 var
    i : Integer;
 begin
-   FLookupVar.Line:=scriptPos.Line;
-   FLookupVar.SourceName:=scriptPos.SourceFile.Name;
+   FLookupVar.Line := sourceLine;
+   FLookupVar.SourceName := sourceName;
    if Find(FLookupVar, i) then
-      Result:=Items[i]
-   else Result:=nil;
+      Result := Items[i]
+   else Result := nil;
 end;
 
 // BreakPointsChanged
@@ -1143,6 +1279,16 @@ end;
 procedure TdwsDebuggerBreakpoints.BreakPointsChanged;
 begin
    Debugger.BreakpointsChanged;
+end;
+
+// ClearEvaluators
+//
+procedure TdwsDebuggerBreakpoints.ClearEvaluators;
+var
+   i : Integer;
+begin
+   for i := 0 to Count-1 do
+      Items[i].ClearEvaluators;
 end;
 
 // ------------------
@@ -1222,10 +1368,10 @@ var
    scriptPos : TScriptPos;
    breakpoint : TdwsDebuggerBreakpoint;
 begin
-   scriptPos:=Debugger.CurrentScriptPos;
-   if (scriptPos.Line<FBitmap.Size) and FBitmap.Bits[scriptPos.Line] then begin
+   scriptPos := Debugger.CurrentScriptPos;
+   if (scriptPos.Line < FBitmap.Size) and FBitmap.Bits[scriptPos.Line] then begin
       breakpoint := FBreakpoints.BreakpointAt(scriptPos);
-      if (breakpoint <> nil) and breakpoint.Enabled then
+      if (breakpoint <> nil) and breakpoint.Enabled and breakpoint.ConditionPassed(Debugger) then
          Exit(True);
    end;
 
@@ -1542,8 +1688,10 @@ end;
 function TdwsBreakpointableLines.IsExecutable(const sourceName : String; line : Integer) : Boolean;
 var
    bits : TBits;
+   locationLC : String;
 begin
-   bits:=FSources.Objects[UnicodeLowerCase(sourceName)];
+   UnicodeLowerCase(sourceName, locationLC);
+   bits := FSources.Objects[locationLC];
    if bits<>nil then
       Result:=(Cardinal(line)<Cardinal(bits.Size)) and bits[line]
    else Result:=False;
@@ -1567,16 +1715,27 @@ end;
 // GetSourceLines
 //
 function TdwsBreakpointableLines.GetSourceLines(const sourceName : String) : TBits;
+var
+   lcName : String;
 begin
-   Result:=FSources.Objects[UnicodeLowerCase(sourceName)];
+   UnicodeLowerCase(sourceName, lcName);
+   Result := FSources.Objects[lcName];
 end;
 
 // EnumeratorCallback
 //
 procedure TdwsBreakpointableLines.EnumeratorCallback(parent, expr : TExprBase; var abort : Boolean);
 begin
-   if expr is TBlockExprBase then Exit;
-   RegisterScriptPos(expr.ScriptPos);
+   if expr is TProgramExpr then
+      TProgramExpr(expr).EnumerateSteppableExprs(SteppableCallback);
+end;
+                                                 //root block is not getting steppable callback called, must inject in ProcessProg
+// SteppableCallback
+//
+procedure TdwsBreakpointableLines.SteppableCallback(expr : TExprBase);
+begin
+   if expr <> nil then
+      RegisterScriptPos(expr.ScriptPos);
 end;
 
 // RegisterScriptPos
@@ -1588,30 +1747,35 @@ procedure TdwsBreakpointableLines.RegisterScriptPos(const scriptPos : TScriptPos
       i : Integer;
       p : PWideChar;
    begin
-      Result:=1;
-      p:=PWideChar(src);
-      for i:=0 to Length(src)-1 do
-         if p[i]=#10 then
+      Result := 1;
+      p := PWideChar(src);
+      for i := 0 to Length(src)-1 do
+         if p[i] = #10 then
             Inc(Result);
    end;
 
 var
    i : Integer;
+   location, locationLC : String;
 begin
-   if scriptPos.SourceFile=nil then Exit;
-   if scriptPos.SourceFile<>FLastSourceFile then begin
-      FLastSourceFile:=scriptPos.SourceFile;
-      FLastBreakpointLines:=FSources.Objects[UnicodeLowerCase(FLastSourceFile.Name)];
-      if FLastBreakpointLines=nil then begin
-         FLastBreakpointLines:=TBreakpointBits.Create;
-         FLastBreakpointLines.SourceName:=scriptPos.SourceFile.Name;
-         FSources.AddObject(UnicodeLowerCase(scriptPos.SourceFile.Name), FLastBreakpointLines);
-         FLastBreakpointLines.Size:=CountLines(scriptPos.SourceFile.Code)+1;
+   if scriptPos.SourceFile = nil then Exit;
+   if scriptPos.SourceFile <> FLastSourceFile then begin
+      FLastSourceFile := scriptPos.SourceFile;
+      location := FLastSourceFile.Location;
+      if location = '' then
+         location := FLastSourceFile.Name;
+      UnicodeLowerCase(location, locationLC);
+      FLastBreakpointLines := FSources.Objects[locationLC];
+      if FLastBreakpointLines = nil then begin
+         FLastBreakpointLines := TBreakpointBits.Create;
+         FLastBreakpointLines.SourceName := location;
+         FSources.AddObject(locationLC, FLastBreakpointLines);
+         FLastBreakpointLines.Size := CountLines(scriptPos.SourceFile.Code) + 1;
       end;
    end;
-   i:=scriptPos.Line;
-   Assert(i<FLastBreakpointLines.Size);
-   FLastBreakpointLines[i]:=True;
+   i := scriptPos.Line;
+   Assert(i < FLastBreakpointLines.Size);
+   FLastBreakpointLines[i] := True;
 end;
 
 // ProcessProg
@@ -1623,16 +1787,21 @@ begin
 
    ProcessSymbolTable(prog.Table);
 
-   if (prog.InitExpr.ScriptPos.SourceFile<>nil) and (prog.InitExpr.SubExprCount>0) then
+   if (prog.InitExpr.ScriptPos.SourceFile<>nil) and (prog.InitExpr.SubExprCount>0) then begin
       prog.InitExpr.RecursiveEnumerateSubExprs(EnumeratorCallback);
+      prog.InitExpr.EnumerateSteppableExprs(SteppableCallback);
+   end;
 
    if not (prog.Expr is TBlockExprBase) then
       RegisterScriptPos(prog.Expr.ScriptPos);
 
+   prog.Expr.EnumerateSteppableExprs(SteppableCallback);
    prog.Expr.RecursiveEnumerateSubExprs(EnumeratorCallback);
 
-   if prog is TdwsMainProgram then
+   if (prog is TdwsMainProgram) and (TdwsMainProgram(prog).FinalExpr <> nil) then begin
       TdwsMainProgram(prog).FinalExpr.RecursiveEnumerateSubExprs(EnumeratorCallback);
+      TdwsMainProgram(prog).FinalExpr.EnumerateSteppableExprs(SteppableCallback);
+   end;
 end;
 
 // ProcessFuncSymbol
@@ -1681,3 +1850,4 @@ begin
 end;
 
 end.
+

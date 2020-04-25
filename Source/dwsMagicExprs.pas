@@ -46,6 +46,9 @@ type
    // TInternalMagicFunction
    //
    TInternalMagicFunction = class (TInternalFunction)
+      private
+         FHelperName : String;
+
       public
          constructor Create(table: TSymbolTable; const funcName: String;
                             const params : TParamArray; const funcType: String;
@@ -54,6 +57,9 @@ type
                             const helperName : String); override;
          function MagicFuncExprClass : TMagicFuncExprClass; virtual; abstract;
          procedure Call(exec: TdwsProgramExecution; func: TFuncSymbol); override; final;
+
+         property HelperName : String read FHelperName;
+         function QualifiedName : String;
    end;
 
    // TInternalMagicProcedure
@@ -138,6 +144,7 @@ type
 
          procedure Initialize(const msgs : TdwsCompileMessageList); override;
          function IsType : Boolean; override;
+         function QualifiedName : String; override;
 
          property InternalFunction : TInternalMagicFunction read FInternalFunction write FInternalFunction;
    end;
@@ -148,6 +155,11 @@ type
       private
          FInternalFunction : TInternalFunction;
          FOnFastEval : TMethodFastEvalEvent;
+         FOnFastEvalInteger : TMethodFastEvalIntegerEvent;
+         FOnFastEvalString : TMethodFastEvalStringEvent;
+         FOnFastEvalBoolean : TMethodFastEvalBooleanEvent;
+         FOnFastEvalFloat : TMethodFastEvalFloatEvent;
+         FOnFastEvalNoResult : TMethodFastEvalNoResultEvent;
 
       public
          destructor Destroy; override;
@@ -157,6 +169,11 @@ type
 
          property InternalFunction : TInternalFunction read FInternalFunction write FInternalFunction;
          property OnFastEval : TMethodFastEvalEvent read FOnFastEval write FOnFastEval;
+         property OnFastEvalInteger : TMethodFastEvalIntegerEvent read FOnFastEvalInteger write FOnFastEvalInteger;
+         property OnFastEvalString : TMethodFastEvalStringEvent read FOnFastEvalString write FOnFastEvalString;
+         property OnFastEvalBoolean : TMethodFastEvalBooleanEvent read FOnFastEvalBoolean write FOnFastEvalBoolean;
+         property OnFastEvalFloat : TMethodFastEvalFloatEvent read FOnFastEvalFloat write FOnFastEvalFloat;
+         property OnFastEvalNoResult : TMethodFastEvalNoResultEvent read FOnFastEvalNoResult write FOnFastEvalNoResult;
    end;
 
    // TMagicStaticMethodSymbol
@@ -173,6 +190,9 @@ type
    // TMagicFuncExpr
    //
    TMagicFuncExpr = class(TFuncExprBase)
+      private
+         FInternalFunc : TInternalMagicFunction;
+
       public
          class function CreateMagicFuncExpr(context : TdwsCompilerContext;
                            const scriptPos : TScriptPos; magicFuncSym : TMagicFuncSymbol) : TMagicFuncExpr;
@@ -187,6 +207,8 @@ type
          procedure GetDataPtr(exec : TdwsExecution; var result : IDataContext); override;
 
          procedure CompileTimeCheck(context : TdwsCompilerContext); override;
+
+         property InternalFunc : TInternalMagicFunction read FInternalFunc;
    end;
 
    // TMagicVariantFuncExpr
@@ -245,16 +267,53 @@ type
    // Method with a FastCall (raw, low-level evaluation)
    TMagicMethodExpr = class (TMethodExpr)
       private
-         FOnFastEval : TMethodFastEvalEvent;
+         FMagicSymbol : TMagicMethodSymbol;
 
+      public
+         constructor Create(context : TdwsCompilerContext; const scriptPos : TScriptPos;
+                            magicMethod : TMagicMethodSymbol;
+                            baseExpr: TTypedExpr);
+
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
+         procedure EvalNoResult(exec : TdwsExecution); override;
+         function EvalAsInteger(exec : TdwsExecution) : Int64; override;
+         function EvalAsFloat(exec : TdwsExecution) : Double; override;
+         function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+         procedure EvalAsString(exec : TdwsExecution; var result : String); override;
+   end;
+
+   TMagicMethodIntegerExpr = class (TMagicMethodExpr)
       public
          procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
          procedure EvalNoResult(exec : TdwsExecution); override;
          function EvalAsInteger(exec : TdwsExecution) : Int64; override;
-         function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
-         procedure EvalAsString(exec : TdwsExecution; var result : String); override;
+   end;
 
-         property OnFastEval : TMethodFastEvalEvent read FOnFastEval write FOnFastEval;
+   TMagicMethodStringExpr = class (TMagicMethodExpr)
+      public
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
+         procedure EvalNoResult(exec : TdwsExecution); override;
+         procedure EvalAsString(exec : TdwsExecution; var result : String); override;
+   end;
+
+   TMagicMethodBooleanExpr = class (TMagicMethodExpr)
+      public
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
+         procedure EvalNoResult(exec : TdwsExecution); override;
+         function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+   end;
+
+   TMagicMethodFloatExpr = class (TMagicMethodExpr)
+      public
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
+         procedure EvalNoResult(exec : TdwsExecution); override;
+         function EvalAsFloat(exec : TdwsExecution) : Double; override;
+   end;
+
+   TMagicMethodNoResultExpr = class (TMagicMethodExpr)
+      public
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
+         procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
    // TMagicIntFuncExpr
@@ -432,6 +491,15 @@ begin
    Result:=False;
 end;
 
+// QualifiedName
+//
+function TMagicFuncSymbol.QualifiedName : String;
+begin
+   Result := inherited QualifiedName;
+   if Result = '' then
+      Result := FInternalFunction.QualifiedName;
+end;
+
 // Destroy
 //
 destructor TMagicFuncSymbol.Destroy;
@@ -483,6 +551,7 @@ var
    sym : TMagicFuncSymbol;
    ssym : TMagicStaticMethodSymbol;
 begin
+   FHelperName := helperName;
    if iffStaticMethod in flags then begin
       ssym:=TMagicStaticMethodSymbol.Generate(table, mkClassMethod, [maStatic],
                                               funcName, params, funcType,
@@ -493,7 +562,7 @@ begin
       ssym.IsExternal:=True;
       compositeSymbol.AddMethod(ssym);
       Assert(helperName=''); // unsupported
-      self.FuncSymbol := ssym;
+      Self.FuncSymbol := ssym;
       if iffDeprecated in flags then
          ssym.DeprecatedMessage := MSG_DeprecatedEmptyMsg;
    end else begin
@@ -503,7 +572,7 @@ begin
       sym.IsStateless:=(iffStateLess in flags);
       sym.IsOverloaded:=(iffOverloaded in flags);
       table.AddSymbol(sym);
-      self.FuncSymbol := sym;
+      Self.FuncSymbol := sym;
       if helperName<>'' then
          CompilerUtils.AddProcHelper(helperName, table, sym, nil);
       if iffDeprecated in flags then
@@ -516,6 +585,18 @@ end;
 procedure TInternalMagicFunction.Call(exec: TdwsProgramExecution; func: TFuncSymbol);
 begin
    Assert(False);
+end;
+
+// QualifiedName
+//
+function TInternalMagicFunction.QualifiedName : String;
+begin
+   Result := FuncSymbol.Name;
+   if Result = '' then begin
+      Assert(FuncSymbol.Params.Count > 0);
+      Assert(FHelperName <> '');
+      Result := FuncSymbol.Params[0].Typ.Name + '$' + FHelperName;
+   end;
 end;
 
 // ------------------
@@ -693,6 +774,15 @@ end;
 // ------------------ TMagicMethodExpr ------------------
 // ------------------
 
+// Create
+//
+constructor TMagicMethodExpr.Create(context : TdwsCompilerContext; const scriptPos : TScriptPos;
+                                    magicMethod : TMagicMethodSymbol;  baseExpr: TTypedExpr);
+begin
+   inherited Create(context, scriptPos, magicMethod, baseExpr);
+   FMagicSymbol := magicMethod;
+end;
+
 // EvalAsVariant
 //
 procedure TMagicMethodExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
@@ -703,7 +793,7 @@ begin
    execRec.Exec:=exec;
    execRec.Expr:=Self;
    try
-      result := FOnFastEval(BaseExpr, execRec);
+      result := FMagicSymbol.OnFastEval(BaseExpr, execRec);
    except
       RaiseScriptError(exec);
    end;
@@ -713,63 +803,218 @@ end;
 //
 procedure TMagicMethodExpr.EvalNoResult(exec : TdwsExecution);
 var
-   execRec : TExprBaseListExec;
+   v : Variant;
 begin
-   execRec.ListRec:=FArgs;
-   execRec.Exec:=exec;
-   execRec.Expr:=Self;
-   try
-      FOnFastEval(BaseExpr, execRec);
-   except
-      RaiseScriptError(exec);
-   end;
+   EvalAsVariant(exec, v);
 end;
 
 // EvalAsInteger
 //
 function TMagicMethodExpr.EvalAsInteger(exec : TdwsExecution) : Int64;
 var
-   execRec : TExprBaseListExec;
+   v : Variant;
 begin
-   execRec.ListRec:=FArgs;
-   execRec.Exec:=exec;
-   execRec.Expr:=Self;
-   try
-      VariantToInt64(FOnFastEval(BaseExpr, execRec), Result);
-   except
-      RaiseScriptError(exec);
-      Result := 0;
-   end;
+   EvalAsVariant(exec, v);
+   Result := VariantToInt64(v);
+end;
+
+// EvalAsFloat
+//
+function TMagicMethodExpr.EvalAsFloat(exec : TdwsExecution) : Double;
+var
+   v : Variant;
+begin
+   EvalAsVariant(exec, v);
+   Result := VariantToFloat(v);
 end;
 
 // EvalAsBoolean
 //
 function TMagicMethodExpr.EvalAsBoolean(exec : TdwsExecution) : Boolean;
 var
-   execRec : TExprBaseListExec;
+   v : Variant;
 begin
-   execRec.ListRec:=FArgs;
-   execRec.Exec:=exec;
-   execRec.Expr:=Self;
-   try
-      Result := VariantToBool(FOnFastEval(BaseExpr, execRec));
-   except
-      RaiseScriptError(exec);
-      Result := False;
-   end;
+   EvalAsVariant(exec, v);
+   Result := VariantToBool(v);
 end;
 
 // EvalAsString
 //
 procedure TMagicMethodExpr.EvalAsString(exec : TdwsExecution; var result : String);
 var
+   v : Variant;
+begin
+   EvalAsVariant(exec, v);
+   VariantToString(v, Result);
+end;
+
+// ------------------
+// ------------------ TMagicMethodIntegerExpr ------------------
+// ------------------
+
+// EvalAsVariant
+//
+procedure TMagicMethodIntegerExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+begin
+   VarCopySafe(result, EvalAsInteger(exec));
+end;
+
+// EvalNoResult
+//
+procedure TMagicMethodIntegerExpr.EvalNoResult(exec : TdwsExecution);
+begin
+   EvalAsInteger(exec);
+end;
+
+// EvalAsInteger
+//
+function TMagicMethodIntegerExpr.EvalAsInteger(exec : TdwsExecution) : Int64;
+var
    execRec : TExprBaseListExec;
 begin
    execRec.ListRec := FArgs;
-   execRec.Expr := Self;
    execRec.Exec := exec;
+   execRec.Expr := Self;
    try
-      VariantToString(FOnFastEval(BaseExpr, execRec), Result);
+      Result := FMagicSymbol.OnFastEvalInteger(BaseExpr, execRec);
+   except
+      RaiseScriptError(exec);
+      Result := 0;
+   end;
+end;
+
+// ------------------
+// ------------------ TMagicMethodStringExpr ------------------
+// ------------------
+
+// EvalAsVariant
+//
+procedure TMagicMethodStringExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+var
+   s : String;
+begin
+   EvalAsString(exec, s);
+   VarCopySafe(result, s);
+end;
+
+// EvalNoResult
+//
+procedure TMagicMethodStringExpr.EvalNoResult(exec : TdwsExecution);
+var
+   s : String;
+begin
+   EvalAsString(exec, s);
+end;
+
+// EvalAsString
+//
+procedure TMagicMethodStringExpr.EvalAsString(exec : TdwsExecution; var result : String);
+var
+   execRec : TExprBaseListExec;
+begin
+   execRec.ListRec := FArgs;
+   execRec.Exec := exec;
+   execRec.Expr := Self;
+   try
+      FMagicSymbol.OnFastEvalString(BaseExpr, execRec, result);
+   except
+      RaiseScriptError(exec);
+   end;
+end;
+
+// ------------------
+// ------------------ TMagicMethodBooleanExpr ------------------
+// ------------------
+
+// EvalAsVariant
+//
+procedure TMagicMethodBooleanExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+begin
+   VarCopySafe(result, EvalAsBoolean(exec));
+end;
+
+// EvalNoResult
+//
+procedure TMagicMethodBooleanExpr.EvalNoResult(exec : TdwsExecution);
+begin
+   EvalAsBoolean(exec);
+end;
+
+// EvalAsBoolean
+//
+function TMagicMethodBooleanExpr.EvalAsBoolean(exec : TdwsExecution) : Boolean;
+var
+   execRec : TExprBaseListExec;
+begin
+   execRec.ListRec := FArgs;
+   execRec.Exec := exec;
+   execRec.Expr := Self;
+   try
+      Result := FMagicSymbol.OnFastEvalBoolean(BaseExpr, execRec);
+   except
+      RaiseScriptError(exec);
+      Result := False;
+   end;
+end;
+
+// ------------------
+// ------------------ TMagicMethodFloatExpr ------------------
+// ------------------
+
+// EvalAsVariant
+//
+procedure TMagicMethodFloatExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+begin
+   VarCopySafe(result, EvalAsFloat(exec));
+end;
+
+// EvalNoResult
+//
+procedure TMagicMethodFloatExpr.EvalNoResult(exec : TdwsExecution);
+begin
+   EvalAsFloat(exec);
+end;
+
+// EvalAsFloat
+//
+function TMagicMethodFloatExpr.EvalAsFloat(exec : TdwsExecution) : Double;
+var
+   execRec : TExprBaseListExec;
+begin
+   execRec.ListRec := FArgs;
+   execRec.Exec := exec;
+   execRec.Expr := Self;
+   try
+      Result := FMagicSymbol.OnFastEvalFloat(BaseExpr, execRec);
+   except
+      RaiseScriptError(exec);
+      Result := 0;
+   end;
+end;
+
+// ------------------
+// ------------------ TMagicMethodNoResultExpr ------------------
+// ------------------
+
+// EvalAsVariant
+//
+procedure TMagicMethodNoResultExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+begin
+   EvalNoResult(exec);
+   VarClearSafe(result);
+end;
+
+// EvalNoResult
+//
+procedure TMagicMethodNoResultExpr.EvalNoResult(exec : TdwsExecution);
+var
+   execRec : TExprBaseListExec;
+begin
+   execRec.ListRec := FArgs;
+   execRec.Exec := exec;
+   execRec.Expr := Self;
+   try
+      FMagicSymbol.OnFastEvalNoResult(BaseExpr, execRec);
    except
       RaiseScriptError(exec);
    end;

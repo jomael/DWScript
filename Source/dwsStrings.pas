@@ -57,7 +57,13 @@ const
   SYS_TCUSTOMATTRIBUTE = 'TCustomAttribute';
   SYS_IINTERFACE = 'IInterface';
   SYS_ANY_TYPE = 'Any Type';
+  SYS_NULL = 'Null';
+  SYS_UNASSIGNED = 'Unassigned';
+  SYS_INDEX = 'Index';
 
+  SYS_ARRAY_OF = 'array of';
+  SYS_ARRAY_OF_ANY = 'array of any type';
+  SYS_ARRAY_OF_CONST = 'array of const';
   SYS_ARRAY_OF_STRING = 'array of String';
   SYS_ARRAY_OF_INTEGER = 'array of Integer';
   SYS_ARRAY_OF_FLOAT = 'array of Float';
@@ -204,6 +210,7 @@ const
   CPE_InheritedWithoutName = 'Name expected after "inherited"';
   CPE_InheritedMethodNotFound = 'Method "%s" not found in ancestor class';
   CPE_StaticMethodExpected = 'Class method or constructor expected';
+  CPE_InternalConstructorCall = 'Constructing internal class "%s" is not allowed';
   CPE_UnexpectedConstructor = 'Constructor invoked on instance outside of constructor';
   CPE_UnexpectedDestructor = 'Destructor can only be invoked on instance';
   CPE_UnexpectedMethodImplementation = 'Unexpected method implementation';
@@ -226,6 +233,7 @@ const
   CPE_ForwardNotImplemented = 'The function "%s" was forward declared but not implemented';
   CPE_CantImplementAFunctionType = 'Cannot implement a function type';
   CPE_ClassIsSealed = 'Class "%s" is sealed, inheriting is not allowed';
+  CPE_ClassIsInternal = 'Class "%s" is internal, inheriting is not allowed';
   CPE_ClassIsStaticNoInstantiation = 'Class "%s" is static, instantiation not allowed';
   CPE_ClassIsStaticNoInstances = 'Class "%s" is static, no instances allowed';
   CPE_ClassAncestorNotStatic = 'Class "%s" is not static, cannot inherit as static';
@@ -325,7 +333,7 @@ const
   CPE_NameIsReserved = 'Name "%s" is reserved';
   CPE_TypeExpected = 'Type expected';
   CPE_InvalidType = '%s is not a Type';
-  CPE_UnknownMember = 'There is no accessible member with name "%s"';
+  CPE_UnknownMemberForType = 'There is no accessible member with name "%s" for type %s';
   CPE_NoMemberExpected = 'No member expected';
   CPE_NoArrayExpected = 'Not an array';
   CPE_NoMethodExpected = 'Not a method';
@@ -343,11 +351,13 @@ const
   CPE_NoDefaultProperty = 'Class "%s" has no default property';
   CPE_ConstVarParam = 'Argument %d (%s) cannot be passed as Var-parameter';
   CPE_OnlyVariablesAsVarParam = 'Only a variable can be be passed as Var-parameter';
+  CPE_StrictParameterTypeCheckNotSupportedFor = 'Strict parameter typecheck is not support for "%s" parameters';
   CPE_MustExplicitOverloads = 'Overloaded procedure "%s" must be marked with the "overload" directive';
   CPH_ShouldExplicitOverload = 'Overloaded method "%s" should be marked with the "overload" directive';
   CPE_NoMatchingOverloadDeclaration = 'There is no overloaded version of "%s" declared with these arguments';
   CPE_NoMatchingOverloadForCall = 'There is no overloaded version of "%s" that can be called with these arguments';
   CPE_MatchingOverload = 'Overload of "%s" will be ambiguous with a previously declared version';
+  CPH_AmbiguousMatchingOverloadsForCall = 'Ambiguous matching overloads of "%s"';
   CPE_OverloadNotAllowed = 'Overload not allowed';
   CPE_ClassMethodExpected = 'Class method expected';
   CPE_ClassMemberExpected = 'Class member expected';
@@ -374,12 +384,14 @@ const
   CPH_ReferenceTypeParamAsConst = '"%s" parameter is a reference type passed as CONST';
   CPH_UnitAlreadyReferred = 'Unit "%s" redeclared';
   CPH_UnitAlreadyReferredInInterface = 'Unit "%s" already declared in interface section';
+  CPH_AssigningToItself = 'Assigning %s to itself';
 
   CPH_OfObjectIsLegacy = 'OF OBJECT modifier is legacy and ignored';
   CPE_OfObjectExpected = 'OF OBJECT expected';
   CPH_ReferenceToIsLegacy = 'REFERENCE TO modifier is legacy and ignored';
 
   CPH_CaseDoesNotMatchDeclaration = '"%s" does not match case of declaration ("%s")';
+  CPH_KeywordCaseMismatch = 'Case mismatch for "%s" should be "%s"';
 
   CPH_CallConventionIsNotSupportedAndIgnored = 'Call convention "%s" is not supported and ignored';
 
@@ -484,6 +496,8 @@ const
   CPW_ForwardIsMeaningless = '"forward" is meaningless for external functions';
   CPW_PropertyWriterDoesNothing = 'Property writer does nothing';
 
+  CPW_AmbiguousOperator = 'Operator "%s" is ambiguous';
+
   CPE_NoResultTypeRequired = 'No result type required';
   CPE_ResultTypeExpected = 'Result type expected';
   CPE_NoResultRequired = 'No result required';
@@ -573,7 +587,8 @@ const
   RTE_ClassInstanceCastFailed = 'Cannot cast instance of type "%s" to class "%s"';
   RTE_MetaClassCastFailed = 'Cannot cast "%s" to class "%s"';
   RTE_OrdinalExpected = 'Ordinal expected';
-  RTE_VariantCastFailed = 'Could not cast variant from "%s" to "%s" (%s)';
+  RTE_VariantVTCastFailed = 'Could not cast variant (%d) to %s';
+  RTE_VariantCastFailed = 'Could not cast variant from %s to %s';
 
   RTE_ObjCastToIntfFailed = 'Class "%s" does not implement interface "%s"';
   RTE_IntfCastToObjFailed = 'Cannot cast interface of "%s" to class "%s"';
@@ -694,3 +709,4 @@ const
 implementation
 
 end.
+

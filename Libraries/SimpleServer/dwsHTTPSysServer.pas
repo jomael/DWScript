@@ -217,7 +217,6 @@ type
          FMaxBandwidth : Cardinal;
          FMaxConnections : Cardinal;
          FAuthentication : Cardinal;
-         FMimeInfos : TMIMETypeCache;
 
          FServerEvents : IdwsHTTPServerEvents;
 
@@ -232,7 +231,6 @@ type
          constructor CreateClone(From : THttpApi2Server);
 
          procedure SendStaticFile(request : PHTTP_REQUEST_V2; response : PHTTP_RESPONSE_V2);
-         procedure AdjustContentTypeFromFileName(const fileName : String; response : PHTTP_RESPONSE_V2);
 
          procedure SendError(request : PHTTP_REQUEST_V2; response : PHTTP_RESPONSE_V2;
                              statusCode : Cardinal; const errorMsg : String);
@@ -262,6 +260,8 @@ type
 
          function GetMaxQueueLength : Cardinal;
          procedure SetMaxQueueLength(const val : Cardinal);
+
+         function HttpThreadExceptionIntercepted(E : Exception) : Boolean;
 
       public
          /// initialize the HTTP Service
@@ -363,23 +363,6 @@ const
 
 var
    vWsaDataOnce : TWSADATA;
-
-function GetNextItemInt64(var p : PAnsiChar) : Int64;
-var
-   c : Integer;
-begin
-   if p = nil then
-      Exit(0);
-   Result := Byte(P^)-Ord('0');  // caller ensured that P^ in ['0'..'9']
-   Inc(p);
-   repeat
-      c := Byte(p^)-Ord('0');
-      if c > 9 then
-         Break
-      else Result := Result*10 + c;
-      Inc(p);
-   until False;
-end; // P^ will point to the first non digit char
 
 function GetCardinal(P, PEnd : PAnsiChar) : cardinal; overload;
 var
@@ -551,20 +534,20 @@ begin
 
    HttpAPI.Check(
       HttpAPI.Initialize(HTTPAPI_VERSION_2, HTTP_INITIALIZE_SERVER),
-      hInitialize);
+      hInitialize, 'THttpApi2Server.Create');
 
    HttpAPI.Check(
       HttpAPI.CreateServerSession(HTTPAPI_VERSION_2, FServerSessionID),
-      hCreateServerSession);
+      hCreateServerSession, 'THttpApi2Server.Create');
 
    HttpAPI.Check(
       HttpAPI.CreateUrlGroup(FServerSessionID, FUrlGroupID),
-      hCreateUrlGroup);
+      hCreateUrlGroup, 'THttpApi2Server.Create');
 
    SetServiceName(aServiceName);
    HttpAPI.Check(
       HttpAPI.CreateRequestQueue(HTTPAPI_VERSION_2, Pointer(FServiceNameW), nil, 0, FReqQueue),
-      hCreateRequestQueue);
+      hCreateRequestQueue, 'THttpApi2Server.Create');
 
    bindInfo.Flags := 1;
    bindInfo.RequestQueueHandle := FReqQueue;
@@ -572,7 +555,7 @@ begin
    HttpAPI.Check(
       HttpAPI.SetUrlGroupProperty(FUrlGroupID, HttpServerBindingProperty,
                                   @bindInfo, SizeOf(bindInfo)),
-      hSetUrlGroupProperty);
+      hSetUrlGroupProperty, 'THttpApi2Server.Create');
 
    FClones := TSimpleList<THttpApi2Server>.Create;
    if not CreateSuspended then
@@ -611,7 +594,6 @@ begin
 
    end;
 
-   FMimeInfos.Free;
    FWebRequest.Free;
    FWebResponse.Free;
 
@@ -644,13 +626,19 @@ procedure THttpApi2Server.SendStaticFile(request : PHTTP_REQUEST_V2; response : 
 var
    fileHandle : THandle;
    dataChunkFile : HTTP_DATA_CHUNK_FILEHANDLE;
-   rangeStart, rangeLength : Int64;
    flags, bytesSent : Cardinal;
    fileName : String;
-   contentRange : RawByteString;
-   R : PAnsiChar;
+   contentType : RawByteString;
+   p : Integer;
 begin
-   fileName := UTF8ToUnicodeString(FWebResponse.ContentData);
+   p := StrIndexOfCharA(FWebResponse.ContentData, #0);
+   if p > 1 then begin
+      fileName := UTF8ToUnicodeString(Copy(FWebResponse.ContentData, 1, p-1));
+      contentType := Copy(FWebResponse.ContentData, p+1);
+   end else begin
+      fileName := UTF8ToUnicodeString(FWebResponse.ContentData);
+      contentType := MIMETypeCache.MIMEType(fileName);
+   end;
    fileHandle := FileOpen(fileName, fmOpenRead or fmShareDenyNone);
    if PtrInt(fileHandle)<0 then begin
       SendError(request, response, 404, SysErrorMessage(GetLastError));
@@ -659,48 +647,23 @@ begin
    try
       dataChunkFile.DataChunkType := hctFromFileHandle;
       dataChunkFile.FileHandle := fileHandle;
-      flags := 0;
       dataChunkFile.ByteRange.StartingOffset.QuadPart := 0;
       Int64(dataChunkFile.ByteRange.Length.QuadPart) := -1; // to eof
-      with request^.Headers.KnownHeaders[reqRange] do begin
-         if     (RawValueLength>6)
-            and StrBeginsWithA(pRawValue, 'bytes=')
-            and (pRawValue[6] in ['0'..'9']) then begin
-            SetString(contentRange, pRawValue+6, RawValueLength-6); // need #0 end
-            R := pointer(contentRange);
-            rangeStart := GetNextItemInt64(R);
-            if R^ = '-' then begin
-               inc(R);
-               flags := HTTP_SEND_RESPONSE_FLAG_PROCESS_RANGES;
-               dataChunkFile.ByteRange.StartingOffset := ULARGE_INTEGER(rangeStart);
-               if R^ in ['0'..'9'] then begin
-                  rangeLength := GetNextItemInt64(R)-rangeStart+1;
-                  if rangeLength>=0 then // "bytes=0-499" -> start=0, len=500
-                     dataChunkFile.ByteRange.Length := ULARGE_INTEGER(rangeLength);
-               end; // "bytes=1000-" -> start=1000, len=-1 (to eof)
-            end;
-         end;
+      if request^.Headers.KnownHeaders[reqRange].RawValueLength > 0 then
+        // Specifies that for a range request, the full response content is passed
+        // and the caller wants the HTTP API to process ranges appropriately.
+        flags := HTTP_SEND_RESPONSE_FLAG_PROCESS_RANGES
+      else flags := 0;
+      with response^.Headers.KnownHeaders[reqContentType] do begin
+         pRawValue := PAnsiChar(contentType);
+         RawValueLength := Length(contentType);
       end;
-      AdjustContentTypeFromFileName(fileName, response);
       response^.EntityChunkCount := 1;
       response^.pEntityChunks := @dataChunkFile;
       HttpAPI.SendHttpResponse(FReqQueue, request^.RequestId, flags, response^,
                                nil, bytesSent, nil, 0, nil, FLogDataPtr);
    finally
       FileClose(fileHandle);
-   end;
-end;
-
-// AdjustContentTypeFromFileName
-//
-procedure THttpApi2Server.AdjustContentTypeFromFileName(const fileName : String; response : PHTTP_RESPONSE_V2);
-var
-   mimeType : RawByteString;
-begin
-   mimeType:=FMimeInfos.MIMEType(fileName);
-   with response^.Headers.KnownHeaders[reqContentType] do begin
-      pRawValue:=PAnsiChar(mimeType);
-      RawValueLength:=Length(mimeType);
    end;
 end;
 
@@ -760,7 +723,7 @@ begin
       if FRegisteredUrl[i] = s then begin
          HttpAPI.Check(
             HttpAPI.RemoveUrlFromUrlGroup(FUrlGroupID, Pointer(FRegisteredUrl[i])),
-            hRemoveUrlFromUrlGroup);
+            hRemoveUrlFromUrlGroup, 'THttpApi2Server.RemoveUrl');
          for j := i to n-1 do
             FRegisteredUrl[j] := FRegisteredUrl[j+1];
          SetLength(FRegisteredUrl, n);
@@ -789,7 +752,7 @@ begin
       else begin
          Error := HttpAPI.Initialize(HTTPAPI_VERSION_2, HTTP_INITIALIZE_CONFIG);
          if Error<>NO_ERROR then
-            raise EHttpApiServer.Create(hInitialize, Error);
+            raise EHttpApiServer.Create(hInitialize, Error, 'THttpApi2Server.AddUrlAuthorize');
          try
             fillchar(Config, sizeof(Config), 0);
             Config.KeyDesc.pUrlPrefix := pointer(prefix);
@@ -802,7 +765,7 @@ begin
                Error := HttpAPI.SetServiceConfiguration(0, hscUrlAclInfo, @Config, Sizeof(Config));
             end;
             if (Error<>NO_ERROR) and (Error<>ERROR_ALREADY_EXISTS) then
-               raise EHttpApiServer.Create(hSetServiceConfiguration, Error);
+               raise EHttpApiServer.Create(hSetServiceConfiguration, Error, 'THttpApi2Server.AddUrlAuthorize');
             result := ''; // success
          finally
             HttpAPI.Terminate(HTTP_INITIALIZE_CONFIG);
@@ -959,7 +922,7 @@ begin
    HttpAPI.Check(
       HttpAPI.SetServerSessionProperty(FServerSessionID, HttpServerQosProperty,
                                        @qosInfo, SizeOf(qosInfo)),
-      hSetServerSessionProperty);
+      hSetServerSessionProperty, 'THttpApi2Server.SetMaxBandwidth');
 end;
 
 // SetMaxConnections
@@ -982,7 +945,7 @@ begin
    HttpAPI.Check(
       HttpAPI.SetServerSessionProperty(FServerSessionID, HttpServerQosProperty,
                                        @qosInfo, SizeOf(qosInfo)),
-      hSetServerSessionProperty);
+      hSetServerSessionProperty, 'SetMaxConnections');
 end;
 
 // GetMaxQueueLength
@@ -995,7 +958,7 @@ begin
       HttpAPI.QueryRequestQueueProperty(FReqQueue, HttpServerQueueLengthProperty,
                                         @Result, SizeOf(Result),
                                         0, @returnLength, nil),
-      hQueryRequestQueueProperty);
+      hQueryRequestQueueProperty, 'THttpApi2Server.GetMaxQueueLength');
 end;
 
 // SetMaxQueueLength
@@ -1006,7 +969,19 @@ begin
    HttpAPI.Check(
       HttpAPI.SetRequestQueueProperty(FReqQueue, HttpServerQueueLengthProperty,
                                       @val, SizeOf(val), 0, nil),
-      hSetRequestQueueProperty);
+      hSetRequestQueueProperty, 'THttpApi2Server.SetMaxQueueLength');
+end;
+
+// HttpThreadExceptionIntercepted
+//
+function THttpApi2Server.HttpThreadExceptionIntercepted(E : Exception) : Boolean;
+var
+   tmp : Exception;
+begin
+   if not Assigned(FOnHttpThreadException) then Exit(False);
+   tmp := E;
+   FOnHttpThreadException(Self, tmp);
+   Result := (tmp = nil);
 end;
 
 // Execute
@@ -1033,8 +1008,8 @@ var
    response : PHTTP_RESPONSE_V2;
    headers : HTTP_UNKNOWN_HEADER_ARRAY;
    dataChunkInMemory : HTTP_DATA_CHUNK_INMEMORY;
-   pContentEncoding : PHTTP_KNOWN_HEADER;
-   pRespServer : PHTTP_KNOWN_HEADER;
+   pContentEncoding, pRespServer : PHTTP_KNOWN_HEADER;
+   sendResult : HResult;
 begin
    NameThreadForDebugging('THttpApi2Server');
    try
@@ -1043,9 +1018,8 @@ begin
    inherited Execute;
    CoInitialize(nil);
 
-   FWebRequest:=THttpSysWebRequest.Create;
-   FWebResponse:=THttpSysWebResponse.Create;
-   FMimeInfos:=TMIMETypeCache.Create;
+   FWebRequest := THttpSysWebRequest.Create;
+   FWebResponse := THttpSysWebResponse.Create;
 
    // reserve working buffers
    SetLength(headers, 64);
@@ -1066,7 +1040,16 @@ begin
       case errCode of
          NO_ERROR : begin
             // parse method and headers
-            FWebRequest.SetRequest(request, URLRewriter);
+            try
+               FWebRequest.SetRequest(request, URLRewriter);
+            except
+               on E : Exception do begin
+                  HttpThreadExceptionIntercepted(E);
+                  SendError(request, response, 400, 'Query string too long');
+                  requestID := 0;
+                  continue;
+               end;
+            end;
 
             with request^.Headers.KnownHeaders[reqContentType] do
                SetString(inContentType, pRawValue, RawValueLength);
@@ -1085,8 +1068,8 @@ begin
             end;
 
             // prepare WebRequest
-            FWebRequest.InContent:=inContent;
-            FWebRequest.InContentType:=inContentType;
+            FWebRequest.InContent := inContent;
+            FWebRequest.InContentType := inContentType;
 
             // cleanup response
             FillChar(response^, SizeOf(response^), 0);
@@ -1107,9 +1090,9 @@ begin
 
                response^.SetStatus(FWebResponse.StatusCode, FOutStatus);
 
-               pRespServer:=@response^.Headers.KnownHeaders[respServer];
-               pRespServer^.pRawValue:=FLogFieldsData.ServerName;
-               pRespServer^.RawValueLength:=FLogFieldsData.ServerNameLength;
+               pRespServer := @response^.Headers.KnownHeaders[respServer];
+               pRespServer^.pRawValue := FLogFieldsData.ServerName;
+               pRespServer^.RawValueLength := FLogFieldsData.ServerNameLength;
 
                // send response
                response^.Version := request^.Version;
@@ -1153,17 +1136,18 @@ begin
                      if FWebResponse.StatusCode <> 304 then begin
                         response^.SetContent(dataChunkInMemory, FWebResponse.ContentData, FWebResponse.ContentType);
                      end;
-                     HttpAPI.Check(
-                        HttpAPI.SendHttpResponse(FReqQueue, request^.RequestId, GetHttpResponseFlags,
-                                                 response^, nil, bytesSent, nil, 0, nil, FLogDataPtr),
-                        hSendHttpResponse);
-
+                     sendResult := HttpAPI.SendHttpResponse(FReqQueue, request^.RequestId, GetHttpResponseFlags,
+                                                            response^, nil, bytesSent, nil, 0, nil, FLogDataPtr);
+                     if sendResult <> HTTPAPI_ERROR_NONEXISTENTCONNECTION then
+                        HttpAPI.Check(sendResult, hSendHttpResponse, 'THttpApi2Server.Execute');
                   end;
                end;
             except
                // handle any exception raised during process: show must go on!
                on E : Exception do begin
-                  SendError(request, response, 500, E.Message);
+                  if HttpThreadExceptionIntercepted(E) then
+                     SendError(request, response, 500, 'Internal Server Error')
+                  else SendError(request, response, 500, E.Message)
                end;
             end;
             // reset Request ID to handle the next pending request
@@ -1189,9 +1173,8 @@ begin
 
    except
       on E : Exception do begin
-         if Assigned(FOnHttpThreadException) then
-            FOnHttpThreadException(Self, E);
-         if E <> nil then raise;
+         if not HttpThreadExceptionIntercepted(E) then
+            raise;
       end;
    end;
 end;
@@ -1276,6 +1259,7 @@ procedure THttpApi2Server.SetAuthentication(schemeFlags : Cardinal);
 var
    authInfo : HTTP_SERVER_AUTHENTICATION_INFO;
 begin
+   FAuthentication := schemeFlags;
    FillChar(authInfo, SizeOf(authInfo), 0);
    authInfo.Flags:=1;
    authInfo.AuthSchemes:=schemeFlags;
@@ -1284,7 +1268,7 @@ begin
    HttpAPI.Check(
       HttpAPI.SetUrlGroupProperty(FUrlGroupID, HttpServerAuthenticationProperty,
                                   @authInfo, SizeOf(authInfo)),
-      hSetServerSessionProperty);
+      hSetServerSessionProperty, 'THttpApi2Server.SetAuthentication(' + IntToHex(schemeFlags, 4) + ')');
 end;
 
 // UpdateLogInfo
@@ -1318,7 +1302,7 @@ begin
    HttpAPI.Check(
       HttpAPI.SetUrlGroupProperty(FUrlGroupID, HttpServerLoggingProperty,
                                   @logInfo, SizeOf(logInfo)),
-      hSetServerSessionProperty);
+      hSetServerSessionProperty, 'THttpApi2Server.UpdateLogInfo');
 end;
 
 // UpdateLogFieldsData
@@ -1350,8 +1334,8 @@ begin
       FLogFieldsData.Method := request^.pUnknownVerb;
    end;
 
-   FLogFieldsData.UriStemLength := request^.CookedUrl.AbsPathLength;
-   FLogFieldsData.UriStem := request^.CookedUrl.pAbsPath;
+   FLogFieldsData.UriStemLength := request^.CookedUrl.FullUrlLength;
+   FLogFieldsData.UriStem := request^.CookedUrl.pFullUrl;
 
    FLogFieldsData.ClientIpLength := FWebRequest.RemoteIP_UTF8_Length;
    FLogFieldsData.ClientIp := FWebRequest.RemoteIP_UTF8;

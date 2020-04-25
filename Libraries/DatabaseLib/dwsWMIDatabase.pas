@@ -64,8 +64,6 @@ type
 
          function Eof : Boolean; override;
          procedure Next; override;
-
-         function FieldCount : Integer; override;
    end;
 
    TdwsWMIDataField = class (TdwsDataField)
@@ -81,7 +79,7 @@ type
 
       public
          function IsNull : Boolean; override;
-         function AsString : String; override;
+         procedure AsString(var Result : String); override;
          function AsInteger : Int64; override;
          function AsFloat : Double; override;
          function AsBlob : RawByteString; override;
@@ -274,13 +272,6 @@ begin
    else ReadFieldValues;
 end;
 
-// FieldCount
-//
-function TdwsWMIDataSet.FieldCount : Integer;
-begin
-   Result := Length(FFields);
-end;
-
 // DoPrepareFields
 //
 procedure TdwsWMIDataSet.DoPrepareFields;
@@ -402,7 +393,7 @@ end;
 
 // AsString
 //
-function TdwsWMIDataField.AsString : String;
+procedure TdwsWMIDataField.AsString(var Result : String);
 var
    w : TdwsJSONWriter;
 begin

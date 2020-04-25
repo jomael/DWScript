@@ -3,7 +3,7 @@ unit UTokenizerTests;
 interface
 
 uses Windows, Classes, SysUtils, dwsXPlatformTests, dwsComp, dwsScriptSource,
-   dwsTokenizer, dwsXPlatform, dwsErrors, dwsUtils, dwsPascalTokenizer;
+   dwsTokenizer, dwsXPlatform, dwsErrors, dwsUtils, dwsPascalTokenizer, TypInfo;
 
 type
 
@@ -23,6 +23,8 @@ type
          procedure NoCurlyComments;
          procedure DollarNames;
          procedure NoBreakSpace;
+         procedure EqualsTokens;
+         procedure PlusMinus;
    end;
 
 // ------------------------------------------------------------------
@@ -132,12 +134,12 @@ begin
       CheckTrue(t.TestDelete(ttDOLLAR), '$');
       CheckTrue(t.TestDelete(ttBLEFT), '(');
       CheckTrue(t.TestDelete(ttQUESTION), '?');
-      CheckTrue(t.TestDelete(ttQUESTIONQUESTION), '??');
-      CheckTrue(t.TestDelete(ttQUESTIONDOT), '?.');
+      CheckTrue(t.TestDelete(ttQUESTION_QUESTION), '??');
+      CheckTrue(t.TestDelete(ttQUESTION_DOT), '?.');
       CheckTrue(t.TestDelete(ttPIPE), '|');
-      CheckTrue(t.TestDelete(ttPIPEPIPE), '||');
+      CheckTrue(t.TestDelete(ttPIPE_PIPE), '||');
       CheckTrue(t.TestDelete(ttAMP), '&');
-      CheckTrue(t.TestDelete(ttAMPAMP), '&&');
+      CheckTrue(t.TestDelete(ttAMP_AMP), '&&');
       CheckTrue(t.TestDelete(ttTILDE), '~');
       CheckTrue(t.TestDelete(ttTILDE_ASSIGN), '~=');
 
@@ -242,6 +244,84 @@ begin
 
       CheckTrue(t.Test(ttStrVal), '2nd string');
       CheckEquals(#$00A0, t.GetToken.AsString, '2nd string value');
+      t.KillToken;
+
+      t.EndSourceFile;
+   finally
+      t.Free;
+      rules.Free;
+   end;
+end;
+
+// EqualsTokens
+//
+procedure TTokenizerTests.EqualsTokens;
+var
+   rules : TPascalTokenizerStateRules;
+   t : TTokenizer;
+begin
+   FSourceFile.Code := '= == === =>';
+   rules := TPascalTokenizerStateRules.Create;
+   t := rules.CreateTokenizer(FMsgs, nil);
+   try
+      t.BeginSourceFile(FSourceFile);
+
+      CheckTrue(t.Test(ttEQ), '=');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttEQ_EQ), '==');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttEQ_EQ_EQ), '===');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttEQ_GTR), '=>');
+      t.KillToken;
+
+      t.EndSourceFile;
+   finally
+      t.Free;
+      rules.Free;
+   end;
+end;
+
+// PlusMinus
+//
+procedure TTokenizerTests.PlusMinus;
+var
+   rules : TPascalTokenizerStateRules;
+   t : TTokenizer;
+begin
+   FSourceFile.Code := '+ - ++ -- += -= ** +-';
+   rules := TPascalTokenizerStateRules.Create;
+   t := rules.CreateTokenizer(FMsgs, nil);
+   try
+      t.BeginSourceFile(FSourceFile);
+
+      CheckTrue(t.Test(ttPLUS), '+');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttMINUS), '-');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttPLUS_PLUS), '++');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttMINUS_MINUS), '--');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttPLUS_ASSIGN), '+=');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttMINUS_ASSIGN), '-=');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttTIMES_TIMES), '**');
+      t.KillToken;
+
+      CheckTrue(t.Test(ttPLUS), '+ in +-');
+      t.KillToken;
+      CheckTrue(t.Test(ttMINUS), '- in +-');
       t.KillToken;
 
       t.EndSourceFile;

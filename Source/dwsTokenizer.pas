@@ -25,7 +25,8 @@ interface
 
 uses
   SysUtils, Classes, TypInfo,
-  dwsScriptSource, dwsErrors, dwsStrings, dwsXPlatform, dwsUtils, dwsXXHash
+  dwsScriptSource, dwsErrors, {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
+  dwsXPlatform, dwsUtils, dwsXXHash
   {$ifdef FPC},lazutf8{$endif};
 
 type
@@ -52,12 +53,14 @@ type
      ttAND, ttOR, ttXOR, ttDIV, ttMOD, ttNOT, ttSHL, ttSHR, ttSAR,
      ttPLUS, ttMINUS, ttIMPLIES, ttIMPLICIT,
      ttTIMES, ttDIVIDE, ttPERCENT, ttCARET, ttAT, ttTILDE,
-     ttDOLLAR, ttEXCLAMATION, ttQUESTION, ttQUESTIONQUESTION, ttQUESTIONDOT,
-     ttEQ, ttNOTEQ, ttGTR, ttGTREQ, ttLESS, ttLESSEQ, ttEQGTR,
-     ttLESSLESS, ttGTRGTR, ttPIPE, ttPIPEPIPE, ttAMP, ttAMPAMP,
+     ttDOLLAR, ttEXCLAMATION, ttEXCL_EQ,
+     ttQUESTION, ttQUESTION_QUESTION, ttQUESTION_DOT,
+     ttEQ, ttNOT_EQ, ttGTR, ttGTR_EQ, ttLESS, ttLESS_EQ, ttEQ_GTR, ttEQ_EQ, ttEQ_EQ_EQ,
+     ttLESS_LESS, ttGTR_GTR, ttPIPE, ttPIPE_PIPE, ttAMP, ttAMP_AMP,
      ttSEMI, ttCOMMA, ttCOLON,
      ttASSIGN, ttPLUS_ASSIGN, ttMINUS_ASSIGN, ttTIMES_ASSIGN, ttDIVIDE_ASSIGN,
      ttPERCENT_ASSIGN, ttCARET_ASSIGN, ttAT_ASSIGN, ttTILDE_ASSIGN,
+     ttPLUS_PLUS, ttMINUS_MINUS, ttTIMES_TIMES,
      ttBLEFT, ttBRIGHT, ttALEFT, ttARIGHT, ttCLEFT, ttCRIGHT,
      ttDEFAULT,
      ttUSES, ttUNIT, ttNAMESPACE,
@@ -70,14 +73,23 @@ type
 
    TTokenTypes = set of TTokenType;
 
+   TTokenizerCaseSensitivity = (
+      tcsCaseInsensitive,        // tokenizer alpha token are case insensitive
+      tcsCaseSensitiveStrict,    // tokenizer alpha token are case sensitive (strict)
+      tcsHintCaseMismatch        // tokenizer alpha token are case insensitive but will hint when case is mismatched
+   );
+
+   TTokenizer = class;
+
    // TTokenBuffer
    //
    TTokenBuffer = record
       Len : Integer;
       Capacity : Integer;
-      CaseSensitive : Boolean;
+      CaseSensitive : TTokenizerCaseSensitivity;
       Buffer : array of Char;
       Unifier : TStringUnifier;
+      Owner : TTokenizer;
 
       procedure AppendChar(c : Char);
       procedure Grow;
@@ -98,6 +110,7 @@ type
       function ToType : TTokenType;
       function ToAlphaType : TTokenType;
       function ToAlphaTypeCaseSensitive : TTokenType;
+      function ToAlphaTypeHintMismatch : TTokenType;
 
       class function StringToTokenType(const str : String) : TTokenType; static;
    end;
@@ -179,8 +192,6 @@ type
 
    TSwitchHandler = function(const switchName : String) : Boolean of object;
 
-   TTokenizer = class;
-
    TTokenizerRules = class
       private
          FStates : TObjectList<TState>;
@@ -188,7 +199,7 @@ type
          FReservedNames : TTokenTypes;
          FSymbolTokens : TTokenTypes;
          FReservedTokens : TTokenTypes;
-         FCaseSensitive : Boolean;
+         FCaseSensitive : TTokenizerCaseSensitivity;
 
       protected
          function CreateState : TState;
@@ -205,7 +216,7 @@ type
          property ReservedNames : TTokenTypes read FReservedNames write FReservedNames;
          property SymbolTokens : TTokenTypes read FSymbolTokens write FSymbolTokens;
          property ReservedTokens : TTokenTypes read FReservedTokens;
-         property CaseSensitive : Boolean read FCaseSensitive write FCaseSensitive;
+         property CaseSensitive : TTokenizerCaseSensitivity read FCaseSensitive write FCaseSensitive;
    end;
 
    TTokenizerSourceInfo = record
@@ -311,36 +322,39 @@ type
 
 const
    cTokenStrings : array [TTokenType] of String = (
-     '', 'UnicodeString Literal', 'Integer Literal', 'Float Literal', 'NAME', 'SWITCH',
-     'LAZY', 'VAR', 'CONST', 'RESOURCESTRING',
-     'TYPE', 'RECORD', 'ARRAY', 'SET', '.', '..', 'OF', 'ENUM', 'FLAGS',
-     'TRY', 'EXCEPT', 'RAISE', 'FINALLY', 'ON',
-     'READ', 'WRITE', 'PROPERTY', 'DESCRIPTION',
-     'FUNCTION', 'PROCEDURE', 'CONSTRUCTOR', 'DESTRUCTOR', 'METHOD', 'LAMBDA', 'OPERATOR',
-     'CLASS', 'NIL', 'IS', 'AS', 'IMPLEMENTS', 'INDEX', 'OBJECT',
-     'VIRTUAL', 'OVERRIDE', 'REINTRODUCE', 'INHERITED', 'FINAL', 'NEW',
-     'ABSTRACT', 'SEALED', 'STATIC', 'PARTIAL', 'DEPRECATED', 'OVERLOAD',
-     'EXTERNAL', 'EXPORT', 'FORWARD', 'INLINE', 'EMPTY', 'IN',
-     'ENSURE', 'REQUIRE', 'INVARIANTS', 'OLD',
-     'INTERFACE', 'IMPLEMENTATION', 'INITIALIZATION', 'FINALIZATION',
-     'HELPER', 'STRICT',
-     'ASM', 'BEGIN', 'END', 'BREAK', 'CONTINUE', 'EXIT',
-     'IF', 'THEN', 'ELSE', 'WITH', 'WHILE', 'REPEAT', 'UNTIL', 'FOR', 'TO', 'DOWNTO', 'DO',
-     'CASE',
-     'TRUE', 'FALSE',
-     'AND', 'OR', 'XOR', 'DIV', 'MOD', 'NOT', 'SHL', 'SHR', 'SAR',
-     '+', '-', 'IMPLIES', 'IMPLICIT',
-     '*', '/', '%', '^', '@', '~', '$', '!', '?', '??', '?.',
-     '=', '<>', '>', '>=', '<', '<=', '=>',
+     '', 'UnicodeString Literal', 'Integer Literal', 'Float Literal', 'name', 'switch',
+     'lazy', 'var', 'const', 'resourcestring',
+     'type', 'record', 'array', 'set', '.', '..', 'of', 'enum', 'flags',
+     'try', 'except', 'raise', 'finally', 'on',
+     'read', 'write', 'property', 'description',
+     'function', 'procedure', 'constructor', 'destructor', 'method', 'lambda', 'operator',
+     'class', 'nil', 'is', 'as', 'implements', 'index', 'object',
+     'virtual', 'override', 'reintroduce', 'inherited', 'final', 'new',
+     'abstract', 'sealed', 'static', 'partial', 'deprecated', 'overload',
+     'external', 'export', 'forward', 'inline', 'empty', 'in',
+     'ensure', 'require', 'invariants', 'old',
+     'interface', 'implementation', 'initialization', 'finalization',
+     'helper', 'strict',
+     'asm', 'begin', 'end', 'break', 'continue', 'exit',
+     'if', 'then', 'else', 'with', 'while', 'repeat', 'until', 'for', 'to', 'downto', 'do',
+     'case',
+     'True', 'False',
+     'and', 'or', 'xor', 'div', 'mod', 'not', 'shl', 'shr', 'sar',
+     '+', '-', 'implies', 'implicit',
+     '*', '/', '%', '^', '@', '~',
+     '$', '!', '!=',
+     '?', '??', '?.',
+     '=', '<>', '>', '>=', '<', '<=', '=>', '==', '===',
      '<<', '>>', '|', '||', '&', '&&',
      ';', ',', ':',
      ':=', '+=', '-=', '*=', '/=',
      '%=', '^=', '@=', '~=',
+     '++', '--', '**',
      '(', ')', '[', ']', '{', '}',
-     'DEFAULT', 'USES', 'UNIT', 'NAMESPACE',
-     'PRIVATE', 'PROTECTED', 'PUBLIC', 'PUBLISHED',
-     'PROGRAM', 'LIBRARY',
-     'REGISTER', 'PASCAL', 'CDECL', 'SAFECALL', 'STDCALL', 'FASTCALL', 'REFERENCE'
+     'default', 'uses', 'unit', 'namespace',
+     'private', 'protected', 'public', 'published',
+     'program', 'library',
+     'register', 'pascal', 'cdecl', 'safecall', 'stdcall', 'fastcall', 'reference'
      );
 
 function TokenTypesToString(const tt : TTokenTypes) : String;
@@ -667,21 +681,24 @@ begin
       '*':
          if Len=1 then
             Result := ttTIMES
-         else if Len=2 then
-            if Buffer[1]='=' then
-               Result := ttTIMES_ASSIGN; // '*='
+         else if Len=2 then case Buffer[1] of
+            '=' : Result := ttTIMES_ASSIGN; // '*='
+            '*' : Result := ttTIMES_TIMES; // '**'
+         end;
       '+':
          if Len=1 then
             Result := ttPLUS
-         else if Len=2 then
-            if Buffer[1]='=' then
-               Result := ttPLUS_ASSIGN; // '+='
+         else if Len=2 then case Buffer[1] of
+            '=' : Result := ttPLUS_ASSIGN; // '+='
+            '+' : Result := ttPLUS_PLUS;   // '++'
+         end;
       '-':
          if Len=1 then
             Result := ttMINUS
-         else if Len=2 then
-            if Buffer[1]='=' then
-               Result := ttMINUS_ASSIGN; // '-='
+         else if Len=2 then case Buffer[1] of
+            '=': Result := ttMINUS_ASSIGN; // '-='
+            '-': Result := ttMINUS_MINUS; // '--'
+         end;
       '@':
          if Len=1 then
             Result := ttAT
@@ -711,34 +728,43 @@ begin
       ')': Result := ttBRIGHT;
       '[': Result := ttALEFT;
       ']': Result := ttARIGHT;
-      '!': Result := ttEXCLAMATION;
+      '!':
+         if Len=1 then
+            Result := ttEXCLAMATION
+         else if Len=2 then
+            if Buffer[1]='=' then
+               Result := ttEXCL_EQ;     // '!='
       '?':
          if Len=1 then
             Result := ttQUESTION
          else if Len=2 then case Buffer[1] of
-            '?' : Result:= ttQUESTIONQUESTION;  // ??
-            '.' : Result:= ttQUESTIONDOT;       // ?.
+            '?' : Result:= ttQUESTION_QUESTION;  // '??'
+            '.' : Result:= ttQUESTION_DOT;       // '?.'
          end;
       '=':
-         if Len=1 then
-            Result := ttEQ
-         else if Len=2 then
-            if Buffer[1]='>' then
-               Result := ttEQGTR;
+         case Len of
+            1 : Result := ttEQ;
+            2 : case Buffer[1] of
+               '>' : Result := ttEQ_GTR;      // '=>'
+               '=' : Result := ttEQ_EQ;       // '=='
+            end;
+            3 : if Buffer[2] = '=' then
+               Result := ttEQ_EQ_EQ;           // '==='
+         end;
       '<':
          if Len=1 then // '<'
             Result := ttLESS
          else if Len=2 then case Buffer[1] of
-            '=' : Result := ttLESSEQ;     // '<='
-            '>' : Result := ttNOTEQ;      // '<>'
-            '<' : Result := ttLESSLESS;   // '<<'
+            '=' : Result := ttLESS_EQ;     // '<='
+            '>' : Result := ttNOT_EQ;      // '<>'
+            '<' : Result := ttLESS_LESS;   // '<<'
          end;
       '>':
          if Len=1 then // '>'
             Result := ttGTR
          else if Len=2 then case Buffer[1] of
-            '=' : Result := ttGTREQ;      // '>='
-            '>' : Result := ttGTRGTR;     // '>>'
+            '=' : Result := ttGTR_EQ;      // '>='
+            '>' : Result := ttGTR_GTR;     // '>>'
          end;
       ':':
          if Len=1 then // ':'
@@ -760,11 +786,15 @@ begin
             Result := ttPIPE
          else if Len=2 then
             if Buffer[1]='|' then
-               Result := ttPIPEPIPE;
+               Result := ttPIPE_PIPE;
    else
-      if CaseSensitive then
-         Result:=ToAlphaTypeCaseSensitive
-      else Result:=ToAlphaType;
+      case CaseSensitive of
+         tcsCaseInsensitive : Result := ToAlphaType;
+         tcsCaseSensitiveStrict : Result := ToAlphaTypeCaseSensitive;
+         tcsHintCaseMismatch : Result := ToAlphaTypeHintMismatch;
+      else
+         Assert(False);
+      end;
    end;
 end;
 
@@ -795,7 +825,8 @@ const
       ttUNIT, ttUNTIL, ttUSES,
       ttVAR, ttVIRTUAL,
       ttWHILE, ttWITH, ttWRITE,
-      ttXOR ];
+      ttXOR
+      ];
 type
    TTokenAlphaLookup = record
       Alpha : String;
@@ -914,6 +945,32 @@ begin
    Result:=ttNAME;
 end;
 
+// ToAlphaTypeHintMismatch
+//
+function TTokenBuffer.ToAlphaTypeHintMismatch : TTokenType;
+
+   procedure HintMismatch;
+   var
+      buf : String;
+      hint : TCaseMismatchHintMessage;
+   begin
+      SetString(buf, PChar(Buffer), Len);
+      hint := TCaseMismatchHintMessage.Create(
+         Owner.FMsgs,
+         Format(CPH_KeywordCaseMismatch, [ buf, cTokenStrings[Result] ]),
+         Owner.FToken.FScriptPos,
+         hlPedantic
+      );
+      hint.Expected := cTokenStrings[Result];
+   end;
+
+begin
+   Result := ToAlphaType;
+   if (Result <> ttNAME) and (Owner.FMsgs.HintsLevel >= hlPedantic) then
+      if not CompareMem(Pointer(Buffer), Pointer(cTokenStrings[Result]), Len*SizeOf(Char)) then
+         HintMismatch;
+end;
+
 // StringToTokenType
 //
 class function TTokenBuffer.StringToTokenType(const str : String) : TTokenType;
@@ -923,8 +980,9 @@ var
 begin
    if str='' then Exit(ttNone);
 
-   buffer.Capacity:=0;
-   buffer.Len:=0;
+   buffer.Capacity := 0;
+   buffer.Len := 0;
+   buffer.CaseSensitive :=  tcsCaseInsensitive;
    for c in str do
       buffer.AppendChar(c);
 
@@ -1069,6 +1127,7 @@ begin
    FStartState := FRules.StartState;
    FTokenBuf.CaseSensitive := rules.CaseSensitive;
    FTokenBuf.Unifier := unifier;
+   FTokenBuf.Owner := Self;
 
    FConditionalDepth:=TSimpleStack<TTokenizerConditionalInfo>.Create;
 end;
@@ -1542,7 +1601,7 @@ procedure TTokenizer.ConsumeToken;
          caAmpAmp : begin
             FToken.FScriptPos:=CurrentPos;
             FToken.FScriptPos.Col:=FToken.FScriptPos.Col-2;
-            FToken.FTyp:=ttAMPAMP;
+            FToken.FTyp:=ttAMP_AMP;
          end;
       end;
       FTokenBuf.Len:=0;
@@ -1685,7 +1744,8 @@ end;
 //
 constructor TTokenizerRules.Create;
 begin
-   FStates:=TObjectList<TState>.Create;
+   FStates := TObjectList<TState>.Create;
+   FCaseSensitive := tcsCaseInsensitive;
 end;
 
 // Destroy
@@ -1725,7 +1785,7 @@ end;
 //
 function TTokenizerRules.CreateTokenizer(msgs : TdwsCompileMessageList; unifier : TStringUnifier) : TTokenizer;
 begin
-   Result:=TTokenizer.Create(Self, msgs, unifier);
+   Result := TTokenizer.Create(Self, msgs, unifier);
 end;
 
 // ------------------------------------------------------------------

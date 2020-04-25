@@ -23,7 +23,7 @@ uses
    Classes, SysUtils, StrUtils, DateUtils,
    SynCrtSock, SynCommons,
    dwsExprs, dwsUtils, dwsWebUtils, dwsWebServerUtils, dwsWebServerHelpers,
-   dwsSymbols, dwsExprList;
+   dwsSymbols, dwsExprList, dwsXPlatform;
 
 type
    TWebRequestAuthentication = (
@@ -126,7 +126,8 @@ type
          function HasQueryField(const name : String) : Boolean;
          function HasContentField(const name : String) : Boolean;
 
-         function IfModifiedSince : TDateTime;
+         function IfModifiedSince : TdwsDateTime;
+         function IfNoneMatch : String;
 
          property Authentication : TWebRequestAuthentication read GetAuthentication;
          property AuthenticatedUser : String read GetAuthenticatedUser;
@@ -178,7 +179,9 @@ type
       protected
          procedure SetContentText(const textType : RawByteString; const text : String);
          procedure SetContentJSON(const json : String);
-         procedure SetLastModified(v : TDateTime);
+         procedure SetLastModified(const v : TdwsDateTime);
+         procedure SetETag(const v : String);
+         procedure SetCacheControl(const v : String);
          function  GetCookies : TWebResponseCookies;
          function  GetCompression : Boolean; inline;
          procedure SetCompression(v : Boolean);
@@ -203,7 +206,9 @@ type
          property Headers : TStrings read FHeaders;
          property Cookies : TWebResponseCookies read GetCookies;
          property Compression : Boolean read GetCompression write SetCompression;
-         property LastModified : TDateTime write SetLastModified;
+         property LastModified : TdwsDateTime write SetLastModified;
+         property ETag : String write SetETag;
+         property CacheControl : String write SetCacheControl;
          property Hints : TWebResponseHints read FHints write FHints;
 
          // optional, informative, time it took to process the response in microseconds
@@ -527,14 +532,21 @@ end;
 
 // IfModifiedSince
 //
-function TWebRequest.IfModifiedSince : TDateTime;
+function TWebRequest.IfModifiedSince : TdwsDateTime;
 var
    v : String;
 begin
-   v:=Header('If-Modified-Since');
+   v := Header('If-Modified-Since');
    if v<>'' then
-      Result:=WebUtils.RFC822ToDateTime(v)
-   else Result:=0;
+      Result.AsUTCDateTime := WebUtils.RFC822ToDateTime(v)
+   else Result.Clear;
+end;
+
+// IfNoneMatch
+//
+function TWebRequest.IfNoneMatch : String;
+begin
+   Result := Header('If-None-Match');
 end;
 
 // GetUserAgent
@@ -585,8 +597,8 @@ end;
 constructor TWebResponse.Create;
 begin
    inherited;
-   FHeaders:=TFastCompareStringList.Create;
-   FHints:=[shCompression];
+   FHeaders := TFastCompareStringList.Create;
+   FHints := [ shCompression ];
 end;
 
 // Destroy
@@ -655,9 +667,23 @@ end;
 
 // SetLastModified
 //
-procedure TWebResponse.SetLastModified(v : TDateTime);
+procedure TWebResponse.SetLastModified(const v : TdwsDateTime);
 begin
-   Headers.Add('Last-Modified='+WebUtils.DateTimeToRFC822(v));
+   Headers.Values['Last-Modified'] := WebUtils.DateTimeToRFC822(v);
+end;
+
+// SetETag
+//
+procedure TWebResponse.SetETag(const v : String);
+begin
+   Headers.Values['ETag'] := v;
+end;
+
+// SetCacheControl
+//
+procedure TWebResponse.SetCacheControl(const v : String);
+begin
+   Headers.Values['Cache-Control'] := v;
 end;
 
 // SetContentText

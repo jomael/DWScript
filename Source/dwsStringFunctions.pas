@@ -25,7 +25,8 @@ interface
 
 uses
    Classes, SysUtils, StrUtils, Math, Masks, Character,
-   dwsXPlatform, dwsUtils, dwsStrings,
+   dwsXPlatform, dwsUtils, {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
+
    dwsFunctions, dwsSymbols, dwsExprs, dwsCoreExprs, dwsExprList,
    dwsConstExprs, dwsMagicExprs, dwsDataContext, dwsWebUtils, dwsJSON;
 
@@ -100,6 +101,10 @@ type
     procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
   end;
 
+  TStrToCSSTextFunc = class(TInternalMagicStringFunction)
+    procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
+  end;
+
   TStrToXMLFunc = class(TInternalMagicStringFunction)
     procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
   end;
@@ -149,6 +154,10 @@ type
   end;
 
   TStrReplaceFunc = class(TInternalMagicStringFunction)
+    procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
+  end;
+
+  TStrReplaceMacrosFunc = class(TInternalMagicStringFunction)
     procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
   end;
 
@@ -296,8 +305,12 @@ type
     procedure DoEvalAsVariant(const args : TExprBaseListExec; var result : Variant); override;
   end;
 
-  TStrJoinFunc = class(TInternalMagicStringFunction)
-    procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
+  TStrJoinFunc = class sealed (TInternalMagicStringFunction)
+    protected
+       procedure DoEvalFromArray(const args : TExprBaseListExec; var Result : String);
+       procedure DoEvalFromMap(const args : TExprBaseListExec; var Result : String);
+    public
+       procedure DoEvalAsString(const args : TExprBaseListExec; var Result : String); override;
   end;
 
   TReverseStringFunc = class(TInternalMagicStringFunction)
@@ -567,6 +580,13 @@ begin
    end;
 end;
 
+{ TStrToCSSTextFunc }
+
+procedure TStrToCSSTextFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
+begin
+   Result := WebUtils.CSSTextEncode(args.AsString[0]);
+end;
+
 { TStrToXMLFunc }
 
 procedure TStrToXMLFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
@@ -680,6 +700,18 @@ begin
    FastStringReplace(Result, args.AsString[1], args.AsString[2]);
 end;
 
+{ TStrReplaceMacrosFunc }
+
+procedure TStrReplaceMacrosFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
+var
+   buf : String;
+   dynIntf : IScriptDynArray;
+begin
+   args.EvalAsString(0, buf);
+   args.ExprBase[1].EvalAsScriptDynArray(args.Exec, dynIntf);
+   Result := StrReplaceMacros(buf, dynIntf.ToStringArray, args.AsString[2], args.AsString[3]);
+end;
+
 { TDeleteFunc }
 
 procedure TDeleteFunc.DoEvalProc(const args : TExprBaseListExec);
@@ -706,7 +738,7 @@ end;
 
 procedure TLowerCaseFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
 begin
-   Result:=UnicodeLowerCase(args.AsString[0]);
+   UnicodeLowerCase(args.AsString[0], Result);
 end;
 
 { TASCIILowerCaseFunc }
@@ -720,7 +752,7 @@ end;
 
 procedure TUpperCaseFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
 begin
-   Result:=UnicodeUpperCase(args.AsString[0]);
+   UnicodeUpperCase(args.AsString[0], Result);
 end;
 
 { TASCIIUpperCaseFunc }
@@ -1199,6 +1231,15 @@ end;
 { TStrJoinFunc }
 
 procedure TStrJoinFunc.DoEvalAsString(const args : TExprBaseListExec; var Result : String);
+begin
+   if args.ExprBase[0] is TArrayMapExpr then
+      DoEvalFromMap(args, Result)
+   else DoEvalFromArray(args, Result);
+end;
+
+// DoEvalFromArray
+//
+procedure TStrJoinFunc.DoEvalFromArray(const args : TExprBaseListExec; var Result : String);
 var
    delim, item : String;
    dynIntf : IScriptDynArray;
@@ -1232,6 +1273,56 @@ begin
       finally
          wobs.ReturnToPool;
       end;
+   end;
+end;
+
+// DoEvalFromMap
+//
+procedure TStrJoinFunc.DoEvalFromMap(const args : TExprBaseListExec; var Result : String);
+var
+   mapExpr : TArrayMapExpr;
+   wobs : TWriteOnlyBlockStream;
+   delim, buf : String;
+{$IFDEF FPC}
+   function A(n : Integer) : PString;
+   begin
+      Result := @buf;
+   end;
+
+   function B(n : Integer) : PString;
+   begin
+      if n > 0 then
+         wobs.WriteString(delim);
+      wobs.WriteString(buf);
+      Result := @buf;
+   end;
+{$ENDIF}
+begin
+   mapExpr := args.ExprBase[0] as TArrayMapExpr;
+   args.EvalAsString(1, delim);
+   buf := '';
+   wobs := TWriteOnlyBlockStream.AllocFromPool;
+   try
+{$IFDEF FPC}
+      mapExpr.EvalAsCallbackString(args.Exec, @A, @B);
+{$ELSE}
+      mapExpr.EvalAsCallbackString(args.Exec,
+         function (n : Integer) : PString
+         begin
+            Result := @buf;
+         end,
+         function (n : Integer) : PString
+         begin
+            if n > 0 then
+               wobs.WriteString(delim);
+            wobs.WriteString(buf);
+            Result := @buf;
+         end
+      );
+{$ENDIF}
+      Result := wobs.ToString;
+   finally
+      wobs.ReturnToPool;
    end;
 end;
 
@@ -1287,9 +1378,10 @@ initialization
    RegisterInternalStringFunction(TStrToHtmlFunc, 'StrToHtml', ['str', SYS_STRING], [iffStateLess], 'ToHtml');
    RegisterInternalStringFunction(TStrToHtmlAttributeFunc, 'StrToHtmlAttribute', ['str', SYS_STRING], [iffStateLess], 'ToHtmlAttribute');
    RegisterInternalStringFunction(TStrToJSONFunc, 'StrToJSON', ['str', SYS_STRING], [iffStateLess], 'ToJSON');
+   RegisterInternalStringFunction(TStrToCSSTextFunc, 'StrToCSSText', ['str', SYS_STRING], [iffStateLess], 'ToCSSText');
    RegisterInternalStringFunction(TStrToXMLFunc, 'StrToXML', ['str', SYS_STRING], [iffStateLess], 'ToXML');
 
-   RegisterInternalStringFunction(TFormatFunc, 'Format', ['fmt', SYS_STRING, 'args', 'array of const'], [iffStateLess], 'Format');
+   RegisterInternalStringFunction(TFormatFunc, 'Format', ['fmt', SYS_STRING, 'args', SYS_ARRAY_OF_CONST], [iffStateLess], 'Format');
 
    RegisterInternalStringFunction(TCharAtFunc, 'CharAt', ['s', SYS_STRING, 'x', SYS_INTEGER], [iffStateLess, iffDeprecated]);
 
@@ -1341,6 +1433,9 @@ initialization
    RegisterInternalStringFunction(TStrPadRightFunc, 'PadRight', ['str', SYS_STRING, 'count', SYS_INTEGER, 'char=', SYS_STRING], [iffStateLess], 'PadRight');
 
    RegisterInternalStringFunction(TStrReplaceFunc, 'StrReplace', ['str', SYS_STRING, 'sub', SYS_STRING,  'newSub', SYS_STRING], [iffStateLess], 'Replace');
+   RegisterInternalStringFunction(TStrReplaceMacrosFunc, 'StrReplaceMacros',
+                                  ['str', SYS_STRING, 'macros', SYS_ARRAY_OF_STRING,
+                                   'macroStart', SYS_STRING, 'macroEnd=', SYS_STRING], [iffStateLess], 'ReplaceMacros');
 
    RegisterInternalStringFunction(TStringOfCharFunc, 'StringOfChar', ['ch', SYS_STRING, 'count', SYS_INTEGER], []);
    RegisterInternalStringFunction(TStringOfStringFunc, 'StringOfString', ['str', SYS_STRING, 'count', SYS_INTEGER], []);

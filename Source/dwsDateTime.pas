@@ -40,7 +40,7 @@ type
 
          constructor Create;
 
-         function FormatDateTime(const fmt : String; dt : Double; tz : TdwsTimeZone) : String;
+         function FormatDateTime(const fmt : String; dt : TDateTime; tz : TdwsTimeZone) : String;
          function DateTimeToStr(const dt : TDateTime; tz : TdwsTimeZone) : String;
          function DateToStr(const dt : TDateTime; tz : TdwsTimeZone) : String;
          function TimeToStr(const dt : TDateTime; tz : TdwsTimeZone) : String;
@@ -63,6 +63,9 @@ implementation
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
+
+uses
+  SyncObjs;
 
 type
    TDateTimeToken = (
@@ -91,7 +94,7 @@ type
          TimeNeeded, DateNeeded : Boolean;
 
          procedure AddToken(tok : TDateTimeToken);
-         procedure AddLitteral(const s : String);
+         procedure AddLiteral(const s : String);
 
       public
          constructor Create(const fmt : String);
@@ -220,7 +223,7 @@ begin
                   Inc(p, 2);
                end;
             end else begin
-               AddLitteral('y');
+               AddLiteral('y');
                Inc(p);
             end;
          end;
@@ -234,7 +237,7 @@ begin
             end;
          end;
          'n', 'N' : begin
-            if (p[1] = 'n') or (p[1] = 'n') then begin
+            if (p[1] = 'n') or (p[1] = 'N') then begin
                AddToken(_nn);
                Inc(p, 2);
             end else begin
@@ -243,7 +246,7 @@ begin
             end;
          end;
          's', 'S' : begin
-            if (p[1] = 's') or (p[1] = 's') then begin
+            if (p[1] = 's') or (p[1] = 'S') then begin
                AddToken(_ss);
                Inc(p, 2);
             end else begin
@@ -271,7 +274,7 @@ begin
                AddToken(_a_p);
                Inc(p, 3);
             end else begin
-               AddLitteral('a');
+               AddLiteral('a');
                Inc(p);
             end;
          end;
@@ -283,13 +286,13 @@ begin
             Inc(quoteStart);
             if quoteStart <> p then begin
                SetString(buf, quoteStart, (NativeUInt(p)-NativeUInt(quoteStart)) div SizeOf(Char));
-               AddLitteral(buf);
+               AddLiteral(buf);
             end;
             if p^ <> #0 then
                Inc(p);
          end;
       else
-         AddLitteral(p^);
+         AddLiteral(p^);
          Inc(p);
       end;
    end;
@@ -384,10 +387,11 @@ begin
                   Break; // TimeNeeded already set by hour token
                end;
             else
-               DateNeeded := True;
                Break;
             end;
          end;
+         if tok in [ _m, _mm ] then
+            DateNeeded := True;
       end;
       _h24.._zzz : TimeNeeded := True;
       _ampm.._a_p : begin
@@ -411,9 +415,9 @@ begin
    Items[n].Token := tok;
 end;
 
-// AddLitteral
+// AddLiteral
 //
-procedure TdwsDateTimeFormatter.AddLitteral(const s : String);
+procedure TdwsDateTimeFormatter.AddLiteral(const s : String);
 var
    n : Integer;
 begin
@@ -443,7 +447,7 @@ end;
 // FormatDateTime
 //
 // Clean Room implementation based strictly on the format String
-function TdwsFormatSettings.FormatDateTime(const fmt : String; dt : Double; tz : TdwsTimeZone) : String;
+function TdwsFormatSettings.FormatDateTime(const fmt : String; dt : TDateTime; tz : TdwsTimeZone) : String;
 begin
    if fmt = '' then Exit;
 
@@ -491,14 +495,16 @@ var
    dth : Double;
    match, previousWasHour, hourToken : Boolean;
 
-   procedure GrabDigits(nbDigits : Integer);
+   function GrabDigits(nbDigits : Integer) : Boolean;
    begin
+      Result := False;
       while (nbDigits>0) and (p<=Length(str)) do begin
          Dec(nbDigits);
          case str[p] of
             '0'..'9' : begin
                value:=value*10+Ord(str[p])-Ord('0');
                Inc(p);
+               Result := True;
             end;
          else
             break;
@@ -546,21 +552,25 @@ begin
                'm', 'd', 'h', 'n', 's' : GrabDigits(1);
                'z' : GrabDigits(2);
             end;
-         2 : if tok='yy' then GrabDigits(2);
+         2 : if tok='yy' then begin
+               if GrabDigits(2) then
+                  tok := 'yyyy';
+            end;
       end;
 
       hourToken:=False;
       case tok[1] of
          'd' :
-            if (tok='d') or (tok='dd') then
-               day:=value
-            else if tok='ddd' then begin
+            if (tok='d') or (tok='dd') then begin
+               day := value
+            end else if tok='ddd' then begin
                match:=False;
                Dec(p, 3);
                for j:=Low(Settings.ShortDayNames) to High(Settings.ShortDayNames) do begin
-                  if UnicodeSameText(Copy(fmt, p, Length(settings.ShortDayNames[j])),
+                  if UnicodeSameText(Copy(str, p, Length(settings.ShortDayNames[j])),
                                      settings.ShortDayNames[j]) then begin
                      Inc(p, Length(settings.ShortDayNames[j]));
+                     day := j;
                      match:=True;
                      break;
                   end;
@@ -570,9 +580,10 @@ begin
                match:=False;
                Dec(p, 4);
                for j:=Low(Settings.LongDayNames) to High(Settings.LongDayNames) do begin
-                  if UnicodeSameText(Copy(fmt, p, Length(settings.LongDayNames[j])),
+                  if UnicodeSameText(Copy(str, p, Length(settings.LongDayNames[j])),
                                      settings.LongDayNames[j]) then begin
                      Inc(p, Length(settings.LongDayNames[j]));
+                     day := j;
                      match:=True;
                      break;
                   end;
@@ -588,9 +599,10 @@ begin
                match:=False;
                Dec(p, 3);
                for j:=Low(settings.ShortMonthNames) to High(settings.ShortMonthNames) do begin
-                  if UnicodeSameText(Copy(fmt, p, Length(settings.ShortDayNames[j])),
-                                     settings.ShortDayNames[j]) then begin
-                     Inc(p, Length(settings.ShortDayNames[j]));
+                  if UnicodeSameText(Copy(str, p, Length(settings.ShortMonthNames[j])),
+                                     settings.ShortMonthNames[j]) then begin
+                     Inc(p, Length(settings.ShortMonthNames[j]));
+                     month := j;
                      match:=True;
                      break;
                   end;
@@ -600,9 +612,10 @@ begin
                match:=False;
                Dec(p, 4);
                for j:=Low(settings.LongMonthNames) to High(settings.LongMonthNames) do begin
-                  if UnicodeSameText(Copy(fmt, p, Length(settings.LongDayNames[j])),
-                                     settings.LongDayNames[j]) then begin
-                     Inc(p, Length(settings.LongDayNames[j]));
+                  if UnicodeSameText(Copy(str, p, Length(settings.LongMonthNames[j])),
+                                     settings.LongMonthNames[j]) then begin
+                     Inc(p, Length(settings.LongMonthNames[j]));
+                     month := j;
                      match:=True;
                      break;
                   end;
@@ -644,14 +657,18 @@ begin
    dt:=0;
    if     (Cardinal(hours)<24) and (Cardinal(minutes)<60)
       and (Cardinal(seconds)<60) and (Cardinal(msec)<1000) then begin
-      dth:=(hours+(minutes+(seconds+msec*0.001)/60)/60)/24;
+      dth := (hours+(minutes+(seconds+msec*0.001)/60)/60)/24;
    	if (day or month or year)<>0 then begin
          if TryEncodeDate(year, month, day, tz, dt) then begin
-            dt:=dt+dth;
-            Result:=True;
+            dt := dt + dth;
+            Result := True;
          end;
       end else begin
-         dt:=dth;
+         if (tz=tzUTC) or ((tz=tzDefault) and (TimeZone=tzUTC)) then begin
+            dt := Frac(LocalDateTimeToUTCDateTime(Trunc(Now) + dth));
+         end else begin
+            dt := dth;
+         end;
          Result:=True;
       end;
    end;
@@ -661,8 +678,8 @@ end;
 //
 function TdwsFormatSettings.TryStrToDate(const str : String; var dt : Double; tz : TdwsTimeZone) : Boolean;
 begin
-   Result:=   TryStrToDateTime(settings.ShortDateFormat, str, dt, tz)
-           or TryStrToDateTime(settings.LongDateFormat, str, dt, tz);
+   Result :=   TryStrToDateTime(settings.ShortDateFormat, str, dt, tz)
+            or TryStrToDateTime(settings.LongDateFormat, str, dt, tz);
 end;
 
 // TryStrToTime

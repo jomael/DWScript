@@ -5,7 +5,8 @@ interface
 uses
    Classes, SysUtils,
    dwsXPlatformTests, dwsComp, dwsCompiler, dwsExprs, dwsDataContext, dwsInfo,
-   dwsExprList, dwsTokenizer, dwsSymbols, dwsUtils, dwsStack, dwsCompilerContext;
+   dwsExprList, dwsTokenizer, dwsSymbols, dwsUtils, dwsStack, dwsCompilerContext,
+   dwsErrors;
 
 type
 
@@ -44,6 +45,7 @@ type
          procedure FuncPointEval(Info: TProgramInfo);
          procedure FuncPointVarParamEval(Info: TProgramInfo);
          procedure FuncPointArrayEval(Info: TProgramInfo);
+         procedure FuncCallbackFuncNameEval(Info: TProgramInfo);
          procedure FuncClassNameEval(Info: TProgramInfo);
          procedure FuncMetaClassNameEval(Info: TProgramInfo);
          procedure FuncOpenArrayEval(Info: TProgramInfo);
@@ -56,6 +58,7 @@ type
          procedure FuncReturnStrings2(Info: TProgramInfo);
          procedure FuncReturnVirtCreate(Info: TProgramInfo);
          procedure FuncNil(Info: TProgramInfo);
+         procedure FuncInternalClass(Info: TProgramInfo);
 
          procedure ClassConstructor(Info: TProgramInfo; var ExtObject: TObject);
          procedure ClassVirtConstructor(Info: TProgramInfo; var ExtObject: TObject);
@@ -142,6 +145,7 @@ type
          procedure SetTest;
          procedure ClassNameTest;
          procedure VirtCreateFunc;
+         procedure CallbackFuncNameTest;
 
          procedure ParseNameTests;
 
@@ -154,6 +158,9 @@ type
          procedure CallLevels;
 
          procedure InfoExceptions;
+
+         procedure InternalClassStatic;
+         procedure InternalClassDynamic;
    end;
 
    EDelphiException = class (Exception)
@@ -428,8 +435,18 @@ begin
    func.ResultType:='String';
    param:=func.Parameters.Add;
    param.Name:='p';
-   param.DataType:='array of const';
+   param.DataType:=SYS_ARRAY_OF_CONST;
    func.OnEval:=FuncOpenArrayEval;
+
+   FUnit.Delegates.Add.Name := 'TProcedure';
+   func := FUnit.Functions.Add;
+   func.Name := 'FuncCallbackFuncName';
+   func.ResultType := 'String';
+   param := func.Parameters.Add;
+   param.Name := 'cb';
+   param.DataType := 'TProcedure';
+   param.DefaultValue := IUnknown(nil);
+   func.OnEval := FuncCallbackFuncNameEval;
 
    func:=FUnit.Functions.Add;
    func.Name:='FuncOverload';
@@ -466,6 +483,9 @@ begin
 
    func:=FUnit.Functions.Add('FuncNil', 'TObject');
    func.OnEval:=FuncNil;
+
+   func := FUnit.Functions.Add('FuncInternalClass', 'TInternalClass');
+   func.OnEval := FuncInternalClass;
 end;
 
 // DeclareTestClasses
@@ -640,6 +660,10 @@ begin
    meth.Attributes:=[maOverride];
    meth.Overloaded:=True;
    meth.OnEval:=MethodOverloadStrEval;
+
+   cls := FUnit.Classes.Add;
+   cls.Name := 'TInternalClass';
+   cls.IsInternal := True;
 end;
 
 // DeclareTestVars
@@ -860,6 +884,19 @@ begin
    item.Member['y'].Value:=4;
 end;
 
+// FuncCallbackFuncNameEval
+//
+procedure TdwsUnitTestsContext.FuncCallbackFuncNameEval(Info: TProgramInfo);
+var
+   a : IInfo;
+begin
+   a := Info.Params[0];
+
+   if a.ValueIsEmpty then
+      Info.ResultAsString := '-'
+   else Info.ResultAsString := IFuncPointer(IUnknown(a.Value)).GetFuncExpr.FuncSym.Name;
+end;
+
 // FuncClassNameEval
 //
 procedure TdwsUnitTestsContext.FuncClassNameEval(Info: TProgramInfo);
@@ -988,6 +1025,18 @@ end;
 procedure TdwsUnitTestsContext.FuncNil(Info: TProgramInfo);
 begin
    Info.ResultAsVariant:=IScriptObj(nil);
+end;
+
+// FuncInternalClass
+//
+procedure TdwsUnitTestsContext.FuncInternalClass(Info: TProgramInfo);
+begin
+   Info.Execution.BeginInternalExecution;
+   try
+      Info.ResultAsVariant := Info.Vars['TInternalClass'].GetConstructor('Create', nil).Call.Value;
+   finally
+      Info.Execution.EndInternalExecution;
+   end;
 end;
 
 // ClassConstructor
@@ -1911,7 +1960,7 @@ begin
 
       astr:=exec.Info.Vars['astr'];
 
-      CheckEquals('array of String', astr.ValueAsString, 'as string');
+      CheckEquals(SYS_ARRAY_OF_STRING, astr.ValueAsString, 'as string');
 
       CheckEquals(0, astr.Member['low'].ValueAsInteger, 'low');
       CheckEquals(1, astr.Member['high'].ValueAsInteger, 'high');
@@ -2532,6 +2581,28 @@ begin
    CheckEquals('-1', FContext.FMagicVar, 'magic');
 end;
 
+// CallbackFuncNameTest
+//
+procedure TdwsUnitTests.CallbackFuncNameTest;
+var
+   prog : IdwsProgram;
+begin
+   prog := FCompiler.Compile(
+       'procedure Hello; begin end;'#10
+      +'procedure World; begin end;'#10
+      +'Print(FuncCallbackFuncName);'#10
+      +'Print(FuncCallbackFuncName(Hello));'#10
+      +'Print(FuncCallbackFuncName(nil));'#10
+      +'var p := @World;'#10
+      +'Print(FuncCallbackFuncName(p));'#10
+   );
+
+   CheckEquals('', prog.Msgs.AsInfo, 'Compile');
+
+   CheckEquals('', prog.Execute.Msgs.AsInfo, 'exec errs');
+   CheckEquals('-Hello-World', prog.Execute.Result.ToString, 'exec result');
+end;
+
 // ExplicitUses
 //
 procedure TdwsUnitTests.ExplicitUses;
@@ -2700,6 +2771,60 @@ begin
       exec.EndProgram;
       exec:=nil;
       prog:=nil;
+   end;
+end;
+
+// InternalClassStatic
+//
+procedure TdwsUnitTests.InternalClassStatic;
+var
+   prog : IdwsProgram;
+begin
+   prog := FCompiler.Compile(
+       'type TFoo = class (TInternalClass);'#10
+      +'type TBar = TInternalClass;'#10
+      +'type TFooBar = class (TBar);'#10
+      +'var a := new TInternalClass;'#10
+      +'var b := new TBar;'#10
+      +'var c := TInternalClass.Create;'#10
+      +'var d := TBar.Create;'
+   );
+   CheckEquals(
+       'Syntax Error: Class "TInternalClass" is internal, inheriting is not allowed [line: 1, column: 20]'#13#10
+      +'Syntax Error: Class "TInternalClass" is internal, inheriting is not allowed [line: 3, column: 23]'#13#10
+      +'Syntax Error: Constructing internal class "TInternalClass" is not allowed [line: 4, column: 14]'#13#10
+      +'Syntax Error: Constructing internal class "TInternalClass" is not allowed [line: 5, column: 14]'#13#10
+      +'Syntax Error: Constructing internal class "TInternalClass" is not allowed [line: 6, column: 25]'#13#10
+      +'Syntax Error: Constructing internal class "TInternalClass" is not allowed [line: 7, column: 15]'#13#10,
+      prog.Msgs.AsInfo
+   );
+end;
+
+// InternalClassDynamic
+//
+procedure TdwsUnitTests.InternalClassDynamic;
+var
+   prog : IdwsProgram;
+   exec : IdwsProgramExecution;
+begin
+   prog := FCompiler.Compile(
+       'var a := FuncInternalClass;'#10
+      +'PrintLn(a is TInternalClass);'#10
+      +'PrintLn(a.ClassName);'#10
+      +'try var b = TClass(TInternalClass).Create; except on E: Exception do PrintLn(E.Message) end;'
+   );
+   CheckEquals(0, prog.Msgs.Count, prog.Msgs.AsInfo);
+   exec := prog.BeginNewExecution;
+   try
+      exec.RunProgram(0);
+      CheckEquals(
+          'True'#13#10
+         +'TInternalClass'#13#10
+         +'Constructing internal class "TInternalClass" is not allowed'#13#10, exec.Result.ToString);
+   finally
+      exec.EndProgram;
+      exec := nil;
+      prog := nil;
    end;
 end;
 

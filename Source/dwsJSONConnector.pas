@@ -24,7 +24,8 @@ uses
    Classes, SysUtils, Variants,
    dwsLanguageExtension, dwsComp, dwsCompiler, dwsDataContext, dwsExprList,
    dwsExprs, dwsTokenizer, dwsSymbols, dwsErrors, dwsCoreExprs, dwsStack,
-   dwsStrings, dwsXPlatform, dwsUtils, dwsOperators, dwsUnitSymbols,
+   {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
+   dwsXPlatform, dwsUtils, dwsOperators, dwsUnitSymbols,
    dwsFunctions, dwsJSON, dwsMagicExprs, dwsConnectorSymbols, dwsScriptSource,
    dwsXXHash, dwsCompilerContext, dwsCompilerUtils, dwsUnicode;
 
@@ -301,7 +302,8 @@ const
 type
    TBoxedJSONValue = class (TInterfacedObject,
                             IBoxedJSONValue, IJSONWriteAble,
-                            ICoalesceable, INumeric, INullable, IGetSelf, IUnknown)
+                            ICoalesceable, IToNumeric, INullable, IToVariant,
+                            IGetSelf, IUnknown)
       FValue : TdwsJSONValue;
 
       constructor Create(wrapped : TdwsJSONValue);
@@ -315,6 +317,7 @@ type
       function ToUnicodeString : UnicodeString; virtual;
       function ToFloat : Double;
       function ToInteger : Int64;
+      procedure ToVariant(var result : Variant);
 
       function Value : TdwsJSONValue;
 
@@ -330,12 +333,15 @@ type
       class function UnBox(const v : Variant) : TdwsJSONValue; static;
    end;
 
-   TBoxedNilJSONValue = class (TInterfacedObject, IBoxedJSONValue, ICoalesceable, INumeric, IGetSelf, IUnknown)
+   TBoxedNilJSONValue = class (TInterfacedObject,
+                               IBoxedJSONValue, ICoalesceable, IToNumeric, IToVariant,
+                               IGetSelf, IUnknown)
       function GetSelf : TObject;
       function ToString : String; override; final;
       function ToUnicodeString : String;
       function ToFloat : Double;
       function ToInteger : Int64;
+      procedure ToVariant(var result : Variant);
       function Value : TdwsJSONValue;
       function IsFalsey : Boolean;
    end;
@@ -409,6 +415,20 @@ end;
 function TBoxedJSONValue.ToInteger : Int64;
 begin
    Result := FValue.AsInteger;
+end;
+
+// ToVariant
+//
+procedure TBoxedJSONValue.ToVariant(var result : Variant);
+begin
+   case FValue.ValueType of
+      jvtNull : VarSetNull(result);
+      jvtString : VarCopySafe(result, FValue.AsString);
+      jvtNumber : VarCopySafe(result, FValue.AsNumber);
+      jvtBoolean : VarCopySafe(result, FValue.AsBoolean);
+   else
+      VarClearSafe(result);
+   end;
 end;
 
 // IsFalsey
@@ -527,6 +547,13 @@ begin
    Result := 0;
 end;
 
+// ToVariant
+//
+procedure TBoxedNilJSONValue.ToVariant(var result : Variant);
+begin
+   VarSetNull(result);
+end;
+
 // IsFalsey
 //
 function TBoxedNilJSONValue.IsFalsey : Boolean;
@@ -595,11 +622,11 @@ begin
    );
 
    TJSONParseIntegerArrayMethod.Create(
-      table, SYS_JSON_PARSE_INTEGER_ARRAY, ['str', SYS_STRING], 'array of integer',
+      table, SYS_JSON_PARSE_INTEGER_ARRAY, ['str', SYS_STRING], SYS_ARRAY_OF_INTEGER,
       [iffStaticMethod], jsonObject, ''
    );
    TJSONParseFloatArrayMethod.Create(
-      table, SYS_JSON_PARSE_FLOAT_ARRAY, ['str', SYS_STRING], 'array of float',
+      table, SYS_JSON_PARSE_FLOAT_ARRAY, ['str', SYS_STRING], SYS_ARRAY_OF_FLOAT,
       [iffStaticMethod], jsonObject, ''
    );
    TJSONParseStringArrayMethod.Create(
@@ -1301,8 +1328,9 @@ begin
          if dataValue = nil then
             dataValue := TdwsJSONImmediate.FromVariant(Null)
          else begin
-            if dataValue.Owner=nil then
-               dataValue.IncRefCount;
+            if dataValue.Owner = nil then
+               dataValue.IncRefCount
+            else dataValue.Detach;
          end;
       end;
       varEmpty :

@@ -25,7 +25,8 @@ interface
 
 uses
    Variants,
-   dwsErrors, dwsStrings, dwsUtils, dwsScriptSource, dwsCompilerContext,
+   dwsErrors, {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
+   dwsUtils, dwsScriptSource, dwsCompilerContext,
    dwsSymbols, dwsDataContext, dwsStack, dwsFunctions,
    dwsExprs, dwsExprList;
 
@@ -151,7 +152,7 @@ type
    // Call to a static constructor
    TConstructorStaticExpr = class(TMethodStaticExpr)
       protected
-         procedure DoCreate(exec : TdwsExecution); inline;
+         procedure DoCreate(exec : TdwsExecution);
          function PreCall(exec : TdwsExecution) : TFuncSymbol; override;
          procedure PostCall(exec : TdwsExecution; var Result : Variant); override;
 
@@ -314,10 +315,15 @@ end;
 
 // Execute
 //
-procedure TExceptionDestroyMethod.Execute(info : TProgramInfo; var ExternalObject: TObject);
+procedure TExceptionDestroyMethod.Execute(info : TProgramInfo; var externalObject : TObject);
+var
+   tmp : TObject;
 begin
-   ExternalObject.Free;
-   ExternalObject:=nil;
+   tmp := externalObject;
+   if tmp <> nil then begin
+      externalObject := nil;
+      tmp.Free;
+   end;
 end;
 
 // ------------------
@@ -326,12 +332,14 @@ end;
 
 // Execute
 //
-procedure TExceptionStackTraceMethod.Execute(info : TProgramInfo; var ExternalObject: TObject);
+procedure TExceptionStackTraceMethod.Execute(info : TProgramInfo; var externalObject : TObject);
 var
    context : TdwsExceptionContext;
 begin
-   context:=ExternalObject as TdwsExceptionContext;
-   Info.ResultAsString:=info.Execution.CallStackToString(context.CallStack);
+   context := externalObject as TdwsExceptionContext;
+   if context <> nil then
+      Info.ResultAsString := info.Execution.CallStackToString(context.CallStack)
+   else Info.ResultAsString := '';
 end;
 
 // ------------------
@@ -636,9 +644,12 @@ procedure TConstructorStaticExpr.DoCreate(exec : TdwsExecution);
 var
    classSym : TClassSymbol;
 begin
-   classSym:=TClassSymbol(BaseExpr.EvalAsInteger(exec));
-   if classSym=nil then
+   classSym := TClassSymbol(BaseExpr.EvalAsInteger(exec));
+   if classSym = nil then
       RaiseScriptError(exec, RTE_ClassTypeIsNil);
+   // note, if we use IsInternal, the compiler inlines nothing, but if we do, it inline both tests
+   if (csfInternal in classSym.Flags) and not exec.InternalExecution then
+      raise EScriptError.CreateFmt(CPE_InternalConstructorCall, [ classSym.Name ]);
 
    // Create object
    exec.SelfScriptObject^:=TScriptObjInstance.Create(classSym, exec as TdwsProgramExecution);
@@ -682,21 +693,24 @@ var
   classInt : Int64;
   classSym : TClassSymbol;
 begin
-  // Get class symbol
-  classInt := FBaseExpr.EvalAsInteger(exec);
-  classSym := TClassSymbol(classInt);
-  Assert(classSym <> nil);
+   // Get class symbol
+   classInt := FBaseExpr.EvalAsInteger(exec);
+   classSym := TClassSymbol(classInt);
+   Assert(classSym <> nil);
 
-  if classSym.IsAbstract then
-    RaiseScriptError(exec, RTE_InstanceOfAbstractClass);
+   if classSym.IsAbstract then
+      RaiseScriptError(exec, RTE_InstanceOfAbstractClass);
+   // note, if we use IsInternal, the compiler inlines nothing, but if we do, it inlines both tests
+   if (csfInternal in classSym.Flags) and not exec.InternalExecution then
+      raise EScriptError.CreateFmt(CPE_InternalConstructorCall, [ classSym.Name ]);
 
-  Result := FindVirtualMethod(classSym);
+   Result := FindVirtualMethod(classSym);
 
-  // Create object
-  exec.SelfScriptObject^ := TScriptObjInstance.Create(classSym, exec as TdwsProgramExecution);
-  exec.SelfScriptObject^.ExternalObject := exec.ExternalObject;
+   // Create object
+   exec.SelfScriptObject^ := TScriptObjInstance.Create(classSym, exec as TdwsProgramExecution);
+   exec.SelfScriptObject^.ExternalObject := exec.ExternalObject;
 
-  exec.Stack.WriteInterfaceValue(exec.Stack.StackPointer + FSelfAddr, exec.SelfScriptObject^);
+   exec.Stack.WriteInterfaceValue(exec.Stack.StackPointer + FSelfAddr, exec.SelfScriptObject^);
 end;
 
 // PostCall

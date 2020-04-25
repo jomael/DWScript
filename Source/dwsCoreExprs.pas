@@ -221,10 +221,10 @@ type
          function SpecializeDataExpr(const context : ISpecializationContext) : TDataExpr; override;
    end;
 
-   // Encapsulates a var parameter
+   // Encapsulates a var parameter from the parent context
    TByRefParentParamExpr = class(TByRefParamExpr)
       protected
-         FLevel: Integer;
+         FLevel : Integer;
 
       public
          constructor Create(dataSym : TDataSymbol);
@@ -236,6 +236,7 @@ type
          procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
          procedure EvalAsInterface(exec : TdwsExecution; var result : IUnknown); override;
          function  EvalAsFloat(exec : TdwsExecution) : Double; override;
+         function  EvalAsInteger(exec : TdwsExecution) : Int64; override;
    end;
 
    TVarParamParentExpr = class(TByRefParentParamExpr)
@@ -374,7 +375,7 @@ type
    end;
 
    // array[index]:=val for dynamic arrays
-   TDynamicArraySetExpr = class(TNoResultExpr)
+   TDynamicArraySetExpr = class (TNoResultExpr)
       private
          FArrayExpr : TTypedExpr;
          FIndexExpr : TTypedExpr;
@@ -390,11 +391,13 @@ type
          destructor Destroy; override;
 
          procedure EvalNoResult(exec : TdwsExecution); override;
+         function  SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
 
          property ArrayExpr : TTypedExpr read FArrayExpr;
          property IndexExpr : TTypedExpr read FIndexExpr;
          property ValueExpr : TTypedExpr read FValueExpr;
    end;
+   TDynamicArraySetExprClass = class of TDynamicArraySetExpr;
 
    // array[index]:=val for dynamic arrays when ArrayExpr is TObjectVarExpr and size=1
    TDynamicArraySetVarExpr = class(TDynamicArraySetExpr)
@@ -432,6 +435,7 @@ type
          procedure GetDataPtr(exec : TdwsExecution; var result : IDataContext); override;
          function  EvalAsInteger(exec : TdwsExecution) : Int64; override;
          function  EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+         procedure EvalAsString(exec : TdwsExecution; var result : String); override;
 
          property BaseExpr : TDataExpr read FBaseExpr;
          property KeyExpr : TTypedExpr read FKeyExpr;
@@ -440,7 +444,10 @@ type
    // Associative array x[key] when key is a value
    TAssociativeArrayValueKeyGetExpr = class (TAssociativeArrayGetExpr)
       public
+         procedure EvalAsVariant(exec : TdwsExecution; var result : Variant); override;
          function  EvalAsInteger(exec : TdwsExecution) : Int64; override;
+         function  EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+         procedure EvalAsString(exec : TdwsExecution; var result : String); override;
    end;
 
    TAssociativeArraySetExpr = class (TNoResultExpr)
@@ -462,6 +469,12 @@ type
          property BaseExpr : TDataExpr read FBaseExpr;
          property KeyExpr : TTypedExpr read FKeyExpr;
          property ValueExpr : TTypedExpr read FValueExpr;
+   end;
+
+   /// Associative array x[key] := v when key and v are values
+   TAssociativeArrayValueSetExpr = class (TAssociativeArraySetExpr)
+      public
+         procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
    TAssociativeArrayContainsKeyExpr = class (TBooleanBinOpExpr)
@@ -728,7 +741,7 @@ type
    end;
 
    // SetLength of dynamic array
-   TArraySetLengthExpr = class(TArrayPseudoMethodExpr)
+   TArraySetLengthExpr = class sealed (TArrayPseudoMethodExpr)
       private
          FLengthExpr : TTypedExpr;
 
@@ -739,7 +752,9 @@ type
       public
          constructor Create(const scriptPos: TScriptPos; aBase, aLength : TTypedExpr);
          destructor Destroy; override;
+
          procedure EvalNoResult(exec : TdwsExecution); override;
+         function SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
 
          property LengthExpr : TTypedExpr read FLengthExpr;
    end;
@@ -833,8 +848,20 @@ type
          procedure SetCompareMethod(var qs : TQuickSort; {%H-}dyn : TScriptDynamicValueArray); override;
    end;
 
+   // Returns the storage to use for the next call, normal sequence is
+   // - first call with number of items as parameter (<0 if unknown), will return storage for 1st item
+   // - second call with n=0, after having stored the first item, returns storage for second item (can be same)
+   // - etc
+   {$IFDEF FPC}
+   TArrayDataEnumeratorCallback = function(n : Integer) : PVariant;
+   TArrayDataEnumeratorCallbackString = function(n : Integer) : PString;
+   {$ELSE}
+   TArrayDataEnumeratorCallback = reference to function(n : Integer) : PVariant;
+   TArrayDataEnumeratorCallbackString = reference to function(n : Integer) : PString;
+   {$ENDIF}
+
    // Map a dynamic array
-   TArrayMapExpr = class(TArrayTypedExpr)
+   TArrayMapExpr = class sealed (TArrayTypedExpr)
       private
          FMapFuncExpr : TFuncPtrExpr;
          FItem : TDataSymbol;
@@ -842,6 +869,8 @@ type
       protected
          function GetSubExpr(i : Integer) : TExprBase; override;
          function GetSubExprCount : Integer; override;
+
+         procedure BaseAsCallback(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallback);
 
       public
          constructor Create(context : TdwsCompilerContext; const scriptPos: TScriptPos;
@@ -851,7 +880,31 @@ type
          procedure EvalAsVariant(exec : TdwsExecution; var Result : Variant); override;
          procedure EvalAsScriptDynArray(exec : TdwsExecution; var result : IScriptDynArray); override;
 
+         procedure EvalAsCallback(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallback);
+         procedure EvalAsCallbackString(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallbackString);
+
          property MapFuncExpr : TFuncPtrExpr read FMapFuncExpr write FMapFuncExpr;
+   end;
+
+   // Filter a dynamic array
+   TArrayFilterExpr = class(TArrayTypedExpr)
+      private
+         FFilterFuncExpr : TFuncPtrExpr;
+         FItem : TDataSymbol;
+
+      protected
+         function GetSubExpr(i : Integer) : TExprBase; override;
+         function GetSubExprCount : Integer; override;
+
+      public
+         constructor Create(context : TdwsCompilerContext; const scriptPos: TScriptPos;
+                            aBase : TTypedExpr; aFilterFunc : TFuncPtrExpr);
+         destructor Destroy; override;
+
+         procedure EvalAsVariant(exec : TdwsExecution; var Result : Variant); override;
+         procedure EvalAsScriptDynArray(exec : TdwsExecution; var result : IScriptDynArray); override;
+
+         property FilterFuncExpr : TFuncPtrExpr read FFilterFuncExpr write FFilterFuncExpr;
    end;
 
    // Reverse a dynamic array
@@ -1425,6 +1478,13 @@ type
          function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
    end;
 
+   // left ?? right (booleans)
+   TCoalesceBooleanExpr = class(TBooleanBinOpExpr)
+      public
+         function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+         function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
+   end;
+
    // left ?? right (class)
    TCoalesceClassExpr = class(TBinaryOpExpr)
       public
@@ -1444,7 +1504,7 @@ type
    end;
 
    // Assert(condition, message);
-   TAssertExpr = class(TNoResultExpr)
+   TAssertExpr = class sealed (TNoResultExpr)
       protected
          FCond : TTypedExpr;
          FMessage : TTypedExpr;
@@ -1453,11 +1513,12 @@ type
          function GetSubExprCount : Integer; override;
 
       public
-         constructor Create(context : TdwsCompilerContext; const aScriptPos: TScriptPos; condExpr, msgExpr : TTypedExpr);
+         constructor Create(const aScriptPos: TScriptPos; condExpr, msgExpr : TTypedExpr);
          destructor Destroy; override;
 
          procedure EvalNoResult(exec : TdwsExecution); override;
          function  Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
+         function  SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
 
          property Cond : TTypedExpr read FCond;
          property Message : TTypedExpr read FMessage;
@@ -1478,6 +1539,7 @@ type
          destructor Destroy; override;
          procedure Orphan(context : TdwsCompilerContext); override;
 
+         function Token : TTokenType; virtual;
          property Left : TDataExpr read FLeft;
          property Right : TTypedExpr read FRight write FRight;
 
@@ -1637,13 +1699,14 @@ type
 
    // a := a op b
    TOpAssignExpr = class(TAssignExpr)
-     function  Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
+      function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
    end;
    TOpAssignExprClass = class of TOpAssignExpr;
 
    // a += b
    TPlusAssignExpr = class(TOpAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
    // a += b (int)
    TPlusAssignIntExpr = class(TPlusAssignExpr)
@@ -1662,7 +1725,8 @@ type
 
    // a -= b
    TMinusAssignExpr = class(TOpAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
    // a -= b (int)
    TMinusAssignIntExpr = class(TMinusAssignExpr)
@@ -1676,7 +1740,8 @@ type
 
    // a *= b
    TMultAssignExpr = class(TOpAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
    // a *= b (int)
    TMultAssignIntExpr = class(TMultAssignExpr)
@@ -1689,16 +1754,19 @@ type
 
    // a /= b
    TDivideAssignExpr = class(TOpAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
    // a += b (int var)
    TIncIntVarExpr = class(TAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
    // a -= b (int var)
    TDecIntVarExpr = class(TAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
    // (int var) += (const inst)
@@ -1706,26 +1774,14 @@ type
      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
-   // Abs(v) (int)
-   TAbsIntExpr = class(TUnaryOpIntExpr)
-      function  EvalAsInteger(exec : TdwsExecution) : Int64; override;
-   end;
-   // Abs(v) (float)
-   TAbsFloatExpr = class(TUnaryOpFloatExpr)
-      function  EvalAsFloat(exec : TdwsExecution) : Double; override;
-   end;
-   // Abs(v) (variant)
-   TAbsVariantExpr = class(TUnaryOpVariantExpr)
-      procedure EvalAsVariant(exec : TdwsExecution; var Result : Variant); override;
-   end;
-
    // a += b (String var)
    TAppendStringVarExpr = class(TAssignExpr)
-     procedure EvalNoResult(exec : TdwsExecution); override;
+      function Token : TTokenType; override;
+      procedure EvalNoResult(exec : TdwsExecution); override;
    end;
 
    // (String var) += (String const)
-   TAppendConstStringVarExpr = class(TAssignExpr)
+   TAppendConstStringVarExpr = class(TAppendStringVarExpr)
       private
          FAppendString : String;
       public
@@ -1808,6 +1864,7 @@ type
          procedure Orphan(context : TdwsCompilerContext); override;
          function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
          function SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
 
          property CondExpr : TTypedExpr read FCond write FCond;
          property ThenExpr : TProgramExpr read FThen write FThen;
@@ -1831,6 +1888,7 @@ type
          procedure Orphan(context : TdwsCompilerContext); override;
          function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
          function SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
 
          property ElseExpr : TProgramExpr read FElse write FElse;
    end;
@@ -1993,6 +2051,7 @@ type
          procedure EvalNoResult(exec : TdwsExecution); override;
 
          function Optimize(context : TdwsCompilerContext) : TProgramExpr; override;
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
 
          property CaseConditions : TTightList read FCaseConditions;
          property ValueExpr: TTypedExpr read FValueExpr write FValueExpr;
@@ -2045,7 +2104,19 @@ type
          function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
    end;
 
-   TIntegerInOpExpr = class (TStringInOpExpr)
+   TCharacterInOpExpr = class (TInOpExpr)
+      private
+         FMap : array of Boolean;
+         FMapHigh : Integer;
+
+      public
+         class function AttemptCreate(context : TdwsCompilerContext; Left : TTypedExpr;
+                                      const conditionsList : TTightList) : TCharacterInOpExpr; static;
+
+         function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
+   end;
+
+   TIntegerInOpExpr = class (TInOpExpr)
       public
          function EvalAsBoolean(exec : TdwsExecution) : Boolean; override;
    end;
@@ -2096,6 +2167,7 @@ type
          property VarExpr: TIntVarExpr read FVarExpr write FVarExpr;
 
          function SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
    end;
 
    TForExprClass = class of TForExpr;
@@ -2158,6 +2230,8 @@ type
                             aVarExpr : TVarExpr; aInExpr : TTypedExpr);
          destructor Destroy; override;
 
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
+
          property DoExpr : TProgramExpr read FDoExpr write FDoExpr;
          property InExpr : TTypedExpr read FInExpr write FInExpr;
          property VarExpr : TVarExpr read FVarExpr write FVarExpr;
@@ -2197,6 +2271,7 @@ type
          procedure EvalNoResult(exec : TdwsExecution); override;
 
          function SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr; override;
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
 
          property CondExpr : TTypedExpr read FCondExpr write FCondExpr;
          property LoopExpr : TProgramExpr read FLoopExpr write FLoopExpr;
@@ -2294,6 +2369,8 @@ type
          constructor Create(tryExpr : TProgramExpr);
          destructor Destroy; override;
 
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
+
          property TryExpr : TProgramExpr read FTryExpr write FTryExpr;
          property HandlerExpr : TProgramExpr read FHandlerExpr write FHandlerExpr;
    end;
@@ -2319,6 +2396,8 @@ type
          procedure AddDoExpr(expr : TExceptDoExpr);
          property DoExpr[i : Integer] : TExceptDoExpr read GetDoExpr;
          function DoExprCount : Integer;
+
+         procedure EnumerateSteppableExprs(const callback : TExprBaseProc); override;
 
          property ElseExpr : TProgramExpr read FElseExpr write FElseExpr;
    end;
@@ -3151,14 +3230,15 @@ end;
 constructor TByRefParentParamExpr.Create(dataSym : TDataSymbol);
 begin
    inherited;
-   FLevel := DataSym.Level;
+   FLevel := dataSym.Level;
+   dataSym.UsedBySubLevel := True;
 end;
 
 // GetDataPtr
 //
 procedure TByRefParentParamExpr.GetDataPtr(exec : TdwsExecution; var result : IDataContext);
 begin
-   Result:=IDataContext(IUnknown(exec.Stack.Data[exec.Stack.GetSavedBp(FLevel) + FStackAddr]));
+   Result := IDataContext(IUnknown(exec.Stack.Data[exec.Stack.GetSavedBp(FLevel) + FStackAddr]));
 end;
 
 // AssignExpr
@@ -3186,7 +3266,14 @@ end;
 //
 function TByRefParentParamExpr.EvalAsFloat(exec : TdwsExecution) : Double;
 begin
-   Result:=DataPtr[exec].AsFloat[0];
+   Result := DataPtr[exec].AsFloat[0];
+end;
+
+// EvalAsInteger
+//
+function TByRefParentParamExpr.EvalAsInteger(exec : TdwsExecution) : Int64;
+begin
+   Result := DataPtr[exec].AsInteger[0];
 end;
 
 // ------------------
@@ -3869,6 +3956,19 @@ begin
    ValueExpr.EvalAsVariant(exec, dynArray.AsPVariant(index)^);
 end;
 
+// SpecializeProgramExpr
+//
+function TDynamicArraySetExpr.SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr;
+begin
+   Result := CreateDynamicArraySetExpr(
+      CompilerContextFromSpecialization(context),
+      FScriptPos,
+      ArrayExpr.SpecializeTypedExpr(context),
+      IndexExpr.SpecializeIntegerExpr(context),
+      ValueExpr.SpecializeTypedExpr(context)
+   );
+end;
+
 // GetSubExpr
 //
 function TDynamicArraySetExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -4022,9 +4122,31 @@ begin
    Result := TScriptAssociativeArray(base.GetSelf).GetDataAsBoolean(exec, KeyExpr);
 end;
 
+// EvalAsString
+//
+procedure TAssociativeArrayGetExpr.EvalAsString(exec : TdwsExecution; var result : String);
+var
+   base : IScriptAssociativeArray;
+begin
+   FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
+   TScriptAssociativeArray(base.GetSelf).GetDataAsString(exec, KeyExpr, result);
+end;
+
 // ------------------
 // ------------------ TAssociativeArrayValueKeyGetExpr ------------------
 // ------------------
+
+// EvalAsVariant
+//
+procedure TAssociativeArrayValueKeyGetExpr.EvalAsVariant(exec : TdwsExecution; var result : Variant);
+var
+   base : IScriptAssociativeArray;
+   key : Variant;
+begin
+   FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
+   KeyExpr.EvalAsVariant(exec, key);
+   TScriptAssociativeArray(base.GetSelf).GetDataAsVariant(exec, key, result);
+end;
 
 // EvalAsInteger
 //
@@ -4036,6 +4158,30 @@ begin
    FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
    KeyExpr.EvalAsVariant(exec, key);
    Result := TScriptAssociativeArray(base.GetSelf).GetDataAsInteger(exec, key);
+end;
+
+// EvalAsBoolean
+//
+function TAssociativeArrayValueKeyGetExpr.EvalAsBoolean(exec : TdwsExecution) : Boolean;
+var
+   base : IScriptAssociativeArray;
+   key : Variant;
+begin
+   FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
+   KeyExpr.EvalAsVariant(exec, key);
+   Result := TScriptAssociativeArray(base.GetSelf).GetDataAsBoolean(exec, key);
+end;
+
+// EvalAsString
+//
+procedure TAssociativeArrayValueKeyGetExpr.EvalAsString(exec : TdwsExecution; var result : String);
+var
+   base : IScriptAssociativeArray;
+   key : Variant;
+begin
+   FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
+   KeyExpr.EvalAsVariant(exec, key);
+   TScriptAssociativeArray(base.GetSelf).GetDataAsString(exec, key, result);
 end;
 
 // ------------------
@@ -4092,6 +4238,25 @@ begin
    FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
    aa:=TScriptAssociativeArray(base.GetSelf);
    aa.ReplaceValue(exec, KeyExpr, valueExpr);
+end;
+
+// ------------------
+// ------------------ TAssociativeArrayValueSetExpr ------------------
+// ------------------
+
+// EvalNoResult
+//
+procedure TAssociativeArrayValueSetExpr.EvalNoResult(exec : TdwsExecution);
+var
+   aa : TScriptAssociativeArray;
+   base : IScriptAssociativeArray;
+   k, v : Variant;
+begin
+   FBaseExpr.EvalAsScriptAssociativeArray(exec, base);
+   KeyExpr.EvalAsVariant(exec, k);
+   ValueExpr.EvalAsVariant(exec, v);
+   aa := TScriptAssociativeArray(base.GetSelf);
+   aa.ReplaceValue(exec, k, v);
 end;
 
 // ------------------
@@ -4420,15 +4585,17 @@ begin
    recType:=TRecordSymbol(Typ);
    for sym in recType.Members do begin
       if sym.ClassType=TFieldSymbol then begin
-         fieldSym:=TFieldSymbol(sym);
-         expr:=fieldSym.DefaultExpr;
-         fieldAddr := exec.Stack.BasePointer+FAddr+fieldSym.Offset;
-         if expr=nil then
-            fieldSym.InitData(exec.Stack.Data, fieldAddr)
-         else if (expr is TDataExpr) and (TDataExpr(expr).Typ.Size > 1) then begin
-            dataExpr:=TDataExpr(expr);
-            dataExpr.DataPtr[exec].CopyData(exec.Stack.Data, fieldAddr, fieldSym.Size);
-         end else expr.EvalAsVariant(exec, exec.Stack.Data[fieldAddr]);
+         fieldSym := TFieldSymbol(sym);
+         expr := fieldSym.DefaultExpr;
+         if expr = nil then
+            fieldSym.InitData(exec.Stack.Data, exec.Stack.BasePointer+FAddr)
+         else begin
+            fieldAddr := exec.Stack.BasePointer+FAddr+fieldSym.Offset;
+            if (expr is TDataExpr) and (TDataExpr(expr).Typ.Size > 1) then begin
+               dataExpr := TDataExpr(expr);
+               dataExpr.DataPtr[exec].CopyData(exec.Stack.Data, fieldAddr, fieldSym.Size);
+            end else expr.EvalAsVariant(exec, exec.Stack.Data[fieldAddr]);
+         end;
       end;
    end;
 end;
@@ -4726,14 +4893,31 @@ end;
 procedure TLazyParamExpr.EvalAsVariant(exec : TdwsExecution; var Result : Variant);
 var
    lazyExpr : TExprBase;
-   oldBasePointer: Integer;
+   oldBasePointer, lazyBasePointer : Integer;
+   {$ifdef WIN32}
    lazyContext : Int64;
+   {$else}
+   lazyContext : PVarData;
+   {$endif}
 begin
+   {$ifdef WIN32}
    lazyContext:=exec.Stack.ReadIntValue(exec.Stack.BasePointer + FStackAddr);
    lazyExpr:=TExprBase(lazyContext and $FFFFFFFF);
+   lazyBasePointer := lazyContext shr 32;
+   {$else}
+   lazyContext := @exec.Stack.Data[exec.Stack.BasePointer + FStackAddr];
+   Assert(lazyContext.VType = varRecord);
+   {$ifdef FPC}
+     // TODO
+   {$ELSE}
+   lazyExpr := TExprBase(lazyContext.VRecord.PRecord);
+   lazyBasePointer := Integer(lazyContext.VRecord.RecInfo);
+   {$ENDIF}
 
-   oldBasePointer:=exec.Stack.BasePointer;
-   exec.Stack.SetBasePointer(lazyContext shr 32);//  stack.GetSavedBp(Level);
+   {$endif}
+
+   oldBasePointer := exec.Stack.BasePointer;
+   exec.Stack.SetBasePointer(lazyBasePointer);//  stack.GetSavedBp(Level);
    try
       lazyExpr.EvalAsVariant(exec, Result);
    finally
@@ -5087,6 +5271,90 @@ begin
 end;
 
 // ------------------
+// ------------------ TCharacterInOpExpr ------------------
+// ------------------
+
+// AttemptCreate
+//
+class function TCharacterInOpExpr.AttemptCreate(
+   context : TdwsCompilerContext; Left : TTypedExpr;
+   const conditionsList : TTightList
+   ) : TCharacterInOpExpr;
+const
+   cMaxChar = 127;
+var
+   failed : Boolean;
+
+   procedure AddRange(const minChar, maxChar : String);
+   var
+      c, minC, maxC : Integer;
+   begin
+      if (Length(minChar) <> 1) then Exit;
+      if (Length(maxChar) <> 1) then Exit;
+      minC := Ord(minChar[1]);
+      maxC := Ord(maxChar[1]);
+      if minC > cMaxChar then Exit;
+      if maxC > cMaxChar then Exit;
+
+      if Length(Result.FMap) <= maxC then
+         SetLength(Result.FMap, maxC+1);
+      for c := minC to maxC do
+         Result.FMap[c] := True;
+
+      failed := False;
+   end;
+
+   procedure AddCharacter(const s : String);
+   begin
+      AddRange(s, s);
+   end;
+
+var
+   cc : TRefCountedObject;
+   lowVal, highVal : String;
+   rcc : TRangeCaseCondition;
+begin
+   Result := TCharacterInOpExpr.Create(context, Left);
+   failed := True;
+   for cc in conditionsList do begin
+      failed := True;
+      if cc is TCompareConstStringCaseCondition then begin
+         AddCharacter(TCompareConstStringCaseCondition(cc).Value)
+      end else if cc is TRangeCaseCondition then begin
+         rcc := TRangeCaseCondition(cc);
+         if     rcc.FromExpr.IsConstant and rcc.ToExpr.IsConstant
+            and rcc.FromExpr.Typ.IsOfType(context.TypString)
+            and rcc.ToExpr.Typ.IsOfType(context.TypString) then begin
+
+            rcc.FromExpr.EvalAsString(context.Execution, lowVal);
+            rcc.ToExpr.EvalAsString(context.Execution, highVal);
+            AddRange(lowVal, highVal);
+         end;
+      end;
+      if failed then break;
+   end;
+
+   if failed then begin
+      Result.FLeft := nil;
+      FreeAndNil(Result);
+   end else Result.FMapHigh := High(Result.FMap);
+end;
+
+// EvalAsBoolean
+//
+function TCharacterInOpExpr.EvalAsBoolean(exec : TdwsExecution) : Boolean;
+var
+   value : String;
+   c : Integer;
+begin
+   FLeft.EvalAsString(exec, value);
+   if value <> '' then begin
+      c := Ord(PChar(Pointer(value))^);
+      Result := (c <= FMapHigh) and FMap[c];
+   end else Result := False;
+end;
+
+// ------------------
 // ------------------ TIntegerInOpExpr ------------------
 // ------------------
 
@@ -5216,7 +5484,7 @@ end;
 
 // Create
 //
-constructor TAssertExpr.Create(context : TdwsCompilerContext; const aScriptPos: TScriptPos; condExpr, msgExpr : TTypedExpr);
+constructor TAssertExpr.Create(const aScriptPos: TScriptPos; condExpr, msgExpr : TTypedExpr);
 begin
    inherited Create(aScriptPos);
    FCond:=condExpr;
@@ -5261,6 +5529,20 @@ begin
       Result:=TNullExpr.Create(FScriptPos);
       Orphan(context);
    end;
+end;
+
+// SpecializeProgramExpr
+//
+function TAssertExpr.SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr;
+var
+   specializedMessage : TTypedExpr;
+   condExpr : TTypedExpr;
+begin
+   if FMessage <> nil then
+      specializedMessage := FMessage.SpecializeTypedExpr(context)
+   else specializedMessage := nil;
+   condExpr := FCond.SpecializeBooleanExpr(context);
+   Result := TAssertExpr.Create(FScriptPos, condExpr, specializedMessage);
 end;
 
 // GetSubExpr
@@ -5775,7 +6057,7 @@ end;
 //
 function TDivideExpr.EvalAsFloat(exec : TdwsExecution) : Double;
 begin
-   Result:=FLeft.EvalAsFloat(exec)/FRight.EvalAsFloat(exec);
+   Result := FLeft.EvalAsFloat(exec) / FRight.EvalAsFloat(exec);
 end;
 
 // Optimize
@@ -6349,6 +6631,39 @@ begin
 end;
 
 // ------------------
+// ------------------ TCoalesceBooleanExpr ------------------
+// ------------------
+
+// EvalAsBoolean
+//
+function TCoalesceBooleanExpr.EvalAsBoolean(exec : TdwsExecution) : Boolean;
+begin
+   Result := Left.EvalAsBoolean(exec);
+   if not Result then
+      Result := Right.EvalAsBoolean(exec);
+end;
+
+// Optimize
+//
+function TCoalesceBooleanExpr.Optimize(context : TdwsCompilerContext) : TProgramExpr;
+var
+   b : Boolean;
+begin
+   if Left.IsConstant then begin
+      b := Left.EvalAsBoolean(context.Execution);
+      if b then begin
+         Result := Left;
+         FLeft := nil;
+      end else begin
+         Result := Right;
+         FRight := nil;
+      end;
+      Orphan(context);
+      Exit;
+   end else Result := inherited Optimize(context);
+end;
+
+// ------------------
 // ------------------ TCoalesceClassExpr ------------------
 // ------------------
 
@@ -6445,6 +6760,13 @@ begin
       end;
       DecRefCount;
    end else inherited;
+end;
+
+// Token
+//
+function TAssignExpr.Token : TTokenType;
+begin
+   Result := ttASSIGN;
 end;
 
 // EvalNoResult
@@ -6607,19 +6929,20 @@ end;
 // SpecializeProgramExpr
 //
 function TAssignExpr.SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr;
+var
+   specializedLeft : TDataExpr;
+   specializedRight : TTypedExpr;
 begin
-   Result := CreateAssignExpr(
+   specializedLeft := Left.SpecializeDataExpr(context);
+   specializedRight := Right.SpecializeTypedExpr(context);
+   Result := dwsCompilerUtils.CreateAssignExpr(
       CompilerContextFromSpecialization(context), ScriptPos,
-      ttASSIGN,
-      FLeft.SpecializeDataExpr(context),
-      FRight.SpecializeTypedExpr(context)
+      Token, specializedLeft, specializedRight
    );
-//
-//   Result := TAssignExprClass(ClassType).Create(
-//      CompilerContextFromSpecialization(context), ScriptPos,
-//      FLeft.SpecializeDataExpr(context),
-//      FRight.SpecializeTypedExpr(context)
-//      );
+   if Result = nil then begin
+      specializedLeft.Free;
+      specializedRight.Free;
+   end;
 end;
 
 // GetSubExpr
@@ -7031,6 +7354,13 @@ begin
    FLeft.AssignValue(exec, lv+rv);
 end;
 
+// Token
+//
+function TPlusAssignExpr.Token : TTokenType;
+begin
+   Result := ttPLUS_ASSIGN;
+end;
+
 // ------------------
 // ------------------ TPlusAssignIntExpr ------------------
 // ------------------
@@ -7113,6 +7443,13 @@ begin
    FLeft.AssignValue(exec, lv-rv);
 end;
 
+// Token
+//
+function TMinusAssignExpr.Token : TTokenType;
+begin
+   Result := ttMINUS_ASSIGN;
+end;
+
 // ------------------
 // ------------------ TMinusAssignIntExpr ------------------
 // ------------------
@@ -7163,6 +7500,13 @@ begin
    FLeft.AssignValue(exec, lv*rv);
 end;
 
+// Token
+//
+function TMultAssignExpr.Token : TTokenType;
+begin
+   Result := ttTIMES_ASSIGN;
+end;
+
 // ------------------
 // ------------------ TMultAssignIntExpr ------------------
 // ------------------
@@ -7196,6 +7540,13 @@ begin
    FLeft.AssignValueAsFloat(exec, FLeft.EvalAsFloat(exec)/FRight.EvalAsFloat(exec));
 end;
 
+// Token
+//
+function TDivideAssignExpr.Token : TTokenType;
+begin
+   Result := ttDIVIDE_ASSIGN;
+end;
+
 // ------------------
 // ------------------ TIncIntVarExpr ------------------
 // ------------------
@@ -7207,6 +7558,13 @@ begin
    TIntVarExpr(FLeft).IncValue(exec, FRight.EvalAsInteger(exec));
 end;
 
+// Token
+//
+function TIncIntVarExpr.Token : TTokenType;
+begin
+   Result := ttPLUS_PLUS;
+end;
+
 // ------------------
 // ------------------ TDecIntVarExpr ------------------
 // ------------------
@@ -7216,6 +7574,13 @@ end;
 procedure TDecIntVarExpr.EvalNoResult(exec : TdwsExecution);
 begin
    TIntVarExpr(FLeft).IncValue(exec, -FRight.EvalAsInteger(exec));
+end;
+
+// Token
+//
+function TDecIntVarExpr.Token : TTokenType;
+begin
+   Result := ttMINUS_MINUS;
 end;
 
 // ------------------
@@ -7230,40 +7595,6 @@ begin
 end;
 
 // ------------------
-// ------------------ TAbsIntExpr ------------------
-// ------------------
-
-// EvalAsInteger
-//
-function TAbsIntExpr.EvalAsInteger(exec : TdwsExecution) : Int64;
-begin
-   Result:=Abs(Expr.EvalAsInteger(exec));
-end;
-
-// ------------------
-// ------------------ TAbsFloatExpr ------------------
-// ------------------
-
-// EvalAsFloat
-//
-function TAbsFloatExpr.EvalAsFloat(exec : TdwsExecution) : Double;
-begin
-   Result:=Abs(Expr.EvalAsFloat(exec));
-end;
-
-// ------------------
-// ------------------ TAbsVariantExpr ------------------
-// ------------------
-
-// EvalAsVariant
-//
-procedure TAbsVariantExpr.EvalAsVariant(exec : TdwsExecution; var Result : Variant);
-begin
-   Expr.EvalAsVariant(exec, Result);
-   Result:=Abs(Result);
-end;
-
-// ------------------
 // ------------------ TAppendStringVarExpr ------------------
 // ------------------
 
@@ -7275,6 +7606,13 @@ var
 begin
    FRight.EvalAsString(exec, buf);
    TStrVarExpr(FLeft).Append(exec, buf);
+end;
+
+// Token
+//
+function TAppendStringVarExpr.Token : TTokenType;
+begin
+   Result := ttPLUS_ASSIGN;
 end;
 
 // ------------------
@@ -7564,6 +7902,13 @@ begin
    );
 end;
 
+// EnumerateSteppableExprs
+//
+procedure TIfThenExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(ThenExpr);
+end;
+
 // GetSubExpr
 //
 function TIfThenExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -7666,6 +8011,14 @@ begin
       ThenExpr.SpecializeProgramExpr(context),
       ElseExpr.SpecializeProgramExpr(context)
    );
+end;
+
+// EnumerateSteppableExprs
+//
+procedure TIfThenElseExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(ThenExpr);
+   callback(ElseExpr);
 end;
 
 // GetSubExpr
@@ -7782,6 +8135,17 @@ begin
       end;
    end;
    Result:=Self;
+end;
+
+// EnumerateSteppableExprs
+//
+procedure TCaseExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+var
+   i : Integer;
+begin
+   for i := 0 to CaseConditions.Count-1 do
+      callback(TCaseCondition(CaseConditions.List[i]).TrueExpr);
+   callback(ElseExpr);
 end;
 
 // GetSubExpr
@@ -8222,6 +8586,13 @@ begin
    Result := specialized;
 end;
 
+// EnumerateSteppableExprs
+//
+procedure TForExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(DoExpr);
+end;
+
 // GetSubExpr
 //
 function TForExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -8498,6 +8869,13 @@ begin
    Result := specialized;
 end;
 
+// EnumerateSteppableExprs
+//
+procedure TLoopExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(LoopExpr);
+end;
+
 // GetSubExpr
 //
 function TLoopExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -8690,6 +9068,14 @@ begin
   inherited;
 end;
 
+// EnumerateSteppableExprs
+//
+procedure TExceptionExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(TryExpr);
+   callback(HandlerExpr);
+end;
+
 // GetSubExpr
 //
 function TExceptionExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -8818,6 +9204,18 @@ end;
 function TExceptExpr.DoExprCount : Integer;
 begin
    Result:=FDoExprs.Count;
+end;
+
+// EnumerateSteppableExprs
+//
+procedure TExceptExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+var
+   i : Integer;
+begin
+   inherited EnumerateSteppableExprs(callback);
+   for i := 0 to DoExprCount-1 do
+      callback(DoExpr[i]);
+   callback(ElseExpr);
 end;
 
 // GetSubExpr
@@ -8990,6 +9388,7 @@ end;
 //
 procedure TExceptDoExpr.EvalNoResult(exec : TdwsExecution);
 begin
+   exec.DoStep(DoBlockExpr);
    DoBlockExpr.EvalNoResult(exec);
 end;
 
@@ -9323,6 +9722,17 @@ begin
    dyn.ArrayLength:=n;
 end;
 
+// SpecializeProgramExpr
+//
+function TArraySetLengthExpr.SpecializeProgramExpr(const context : ISpecializationContext) : TProgramExpr;
+begin
+   Result := TArraySetLengthExpr.Create(
+      FScriptPos,
+      BaseExpr.SpecializeTypedExpr(context),
+      LengthExpr.SpecializeTypedExpr(context)
+   );
+end;
+
 // ------------------
 // ------------------ TArraySwapExpr ------------------
 // ------------------
@@ -9646,6 +10056,169 @@ begin
    end;
 end;
 
+// BaseAsCallback
+//
+procedure TArrayMapExpr.BaseAsCallback(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallback);
+var
+   base : IScriptDynArray;
+   dyn : TScriptDynamicValueArray;
+   destPVariant : PVariant;
+   i : Integer;
+begin
+   if BaseExpr is TArrayMapExpr then begin
+
+      TArrayMapExpr(BaseExpr).EvalAsCallback(exec, initial, callback);
+
+   end else begin
+
+      BaseExpr.EvalAsScriptDynArray(exec, base);
+      dyn := TScriptDynamicValueArray(base.GetSelf);
+      destPVariant := initial(dyn.ArrayLength);
+      if dyn.ElementSize = 1 then begin
+         i := 0;
+         while i < dyn.ArrayLength do begin
+            VarCopySafe(destPVariant^, dyn.AsPVariant(i)^);
+            destPVariant := callback(i);
+            Inc(i);
+         end;
+      end else begin
+         i := 0;
+         while i < dyn.ArrayLength do begin
+            dyn.CopyData(i*dyn.ElementSize, destPVariant, dyn.ElementSize);
+            destPVariant := callback(i);
+            Inc(i);
+         end;
+      end;
+
+   end;
+end;
+
+// EvalAsCallback
+//
+procedure TArrayMapExpr.EvalAsCallback(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallback);
+var
+   itemAddr, destSize : Integer;
+   itemPtr : PVariant;
+   funcPointer : IFuncPointer;
+   destPVariant : PVariant;
+   loopCallback : TArrayDataEnumeratorCallback;
+
+{$IFDEF FPC}
+   function A(n : Integer) : PVariant;
+   begin
+      funcPointer.EvalAsVariant(exec, MapFuncExpr, destPVariant^);
+      destPVariant := callback(n);
+      Result := itemPtr;
+   end;
+
+   function B(n : Integer) : PVariant;
+   var
+      dc : IDataContext;
+   begin
+      dc := funcPointer.EvalDataPtr(exec,  MapFuncExpr, MapFuncExpr.ResultAddr);
+      dc.CopyData(destPVariant^, 0, destSize);
+      destPVariant := callback(n);
+      Result := itemPtr;
+   end;
+
+   function C(n : Integer) : PVariant;
+   begin
+      destPVariant := initial(n);
+      Result := itemPtr;
+   end;
+{$ENDIF}
+
+begin
+   MapFuncExpr.EvalAsFuncPointer(exec, funcPointer);
+
+   itemAddr := exec.Stack.BasePointer + FItem.StackAddr;
+   itemPtr := @exec.Stack.Data[itemAddr];
+
+   destSize := Typ.Typ.Size;
+{$IFDEF FPC}
+   if destSize = 1 then begin
+      loopCallback := @A;
+   end else begin
+      loopCallback := @B;
+   end;
+   BaseAsCallback(exec, @C, loopCallback);
+{$ELSE}
+   if destSize = 1 then begin
+      loopCallback := function(n : Integer) : PVariant
+      begin
+         funcPointer.EvalAsVariant(exec, MapFuncExpr, destPVariant^);
+         destPVariant := callback(n);
+         Result := itemPtr;
+      end;
+   end else begin
+      loopCallback := function(n : Integer) : PVariant
+      var
+         dc : IDataContext;
+      begin
+         dc := funcPointer.EvalDataPtr(exec,  MapFuncExpr, MapFuncExpr.ResultAddr);
+         dc.CopyData(destPVariant^, 0, destSize);
+         destPVariant := callback(n);
+         Result := itemPtr;
+      end;
+   end;
+   BaseAsCallback(exec,
+      function(n : Integer) : PVariant
+      begin
+         destPVariant := initial(n);
+         Result := itemPtr;
+      end, loopCallback);
+{$ENDIF}
+end;
+
+// EvalAsCallbackString
+//
+procedure TArrayMapExpr.EvalAsCallbackString(exec : TdwsExecution; const initial, callback : TArrayDataEnumeratorCallbackString);
+var
+   itemAddr : Integer;
+   itemPtr : PVariant;
+   funcPointer : IFuncPointer;
+   destString : PString;
+
+{$IFDEF FPC}
+   function A(n : Integer) : PVariant;
+   begin
+      Result := itemPtr;
+      destString := initial(n);
+   end;
+
+   function B(n : Integer) : PVariant;
+   begin
+      funcPointer.EvalAsString(exec, MapFuncExpr, destString^);
+      Result := itemPtr;
+      destString := callback(n);
+   end;
+{$ENDIF}
+
+begin
+   MapFuncExpr.EvalAsFuncPointer(exec, funcPointer);
+
+   itemAddr := exec.Stack.BasePointer + FItem.StackAddr;
+   itemPtr := @exec.Stack.Data[itemAddr];
+
+{$IFDEF FPC}
+   BaseAsCallback(exec, @A, @B);
+{$ELSE}
+   BaseAsCallback(exec,
+      function(n : Integer) : PVariant
+      begin
+         Result := itemPtr;
+         destString := initial(n);
+      end,
+      function(n : Integer) : PVariant
+      begin
+         funcPointer.EvalAsString(exec, MapFuncExpr, destString^);
+         Result := itemPtr;
+         destString := callback(n);
+      end
+   );
+{$ENDIF}
+end;
+
 // GetSubExpr
 //
 function TArrayMapExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -9660,6 +10233,111 @@ end;
 function TArrayMapExpr.GetSubExprCount : Integer;
 begin
    Result:=2;
+end;
+
+// ------------------
+// ------------------ TArrayFilterExpr ------------------
+// ------------------
+
+// Create
+//
+constructor TArrayFilterExpr.Create(context : TdwsCompilerContext; const scriptPos: TScriptPos;
+                                   aBase : TTypedExpr; aFilterFunc : TFuncPtrExpr);
+var
+   elemTyp : TTypeSymbol;
+begin
+   inherited Create(context, scriptPos, aBase);
+   FFilterFuncExpr := aFilterFunc;
+   Typ := aBase.Typ;
+
+   if aFilterFunc <> nil then begin
+      elemTyp := aFilterFunc.FuncSym.Params[0].Typ;
+      FItem := TScriptDataSymbol.Create('', elemTyp);
+      context.Table.AddSymbol(FItem);
+      FFilterFuncExpr.AddArg(TVarExpr.CreateTyped(context, FItem));
+      FFilterFuncExpr.InitializeResultAddr(context.Prog as TdwsProgram);
+   end;
+end;
+
+// Destroy
+//
+destructor TArrayFilterExpr.Destroy;
+begin
+   inherited;
+   FFilterFuncExpr.Free;
+end;
+
+// EvalAsVariant
+//
+procedure TArrayFilterExpr.EvalAsVariant(exec : TdwsExecution; var Result : Variant);
+var
+   dyn : IScriptDynArray;
+begin
+   EvalAsScriptDynArray(exec, dyn);
+   VarCopySafe(Result, dyn);
+end;
+
+// EvalAsScriptDynArray
+//
+procedure TArrayFilterExpr.EvalAsScriptDynArray(exec : TdwsExecution; var result : IScriptDynArray);
+var
+   newArray : TScriptDynamicArray;
+   base : IScriptDynArray;
+   dyn : TScriptDynamicValueArray;
+   i, k, elementSize, itemAddr : Integer;
+   funcPointer : IFuncPointer;
+   newPData, oldPData : PData;
+begin
+   BaseExpr.EvalAsScriptDynArray(exec, base);
+   FilterFuncExpr.EvalAsFuncPointer(exec, funcPointer);
+
+   dyn := TScriptDynamicValueArray(base.GetSelf);
+   oldPData := dyn.AsPData;
+
+   newArray := TScriptDynamicArray.CreateNew(dyn.ElementTyp);
+   result := IScriptDynArray(newArray);
+   newArray.ArrayLength := dyn.ArrayLength;
+   newPData := newArray.AsPData;
+   elementSize := newArray.ElementSize;
+   k := 0;
+
+   itemAddr := exec.Stack.BasePointer + FItem.StackAddr;
+   if elementSize = 1 then begin
+      for i := 0 to dyn.ArrayLength-1 do begin
+         exec.Stack.WriteValue(itemAddr, oldPData^[i]);
+         if funcPointer.EvalAsBoolean(exec, FilterFuncExpr) then begin
+            VarCopySafe(newPData^[k], oldPData^[i]);
+            Inc(k);
+         end;
+      end;
+   end else begin
+      for i := 0 to dyn.ArrayLength-1 do begin
+         dyn.CopyData(i*dyn.ElementSize, exec.Stack.Data, itemAddr, dyn.ElementSize);
+         if funcPointer.EvalAsBoolean(exec, FilterFuncExpr) then begin
+            dyn.CopyData(i*dyn.ElementSize, newPData^, k*elementSize, elementSize);
+            Inc(k);
+         end;
+      end;
+   end;
+
+   if k <> newArray.ArrayLength then
+      newArray.ArrayLength := k;
+end;
+
+// GetSubExpr
+//
+function TArrayFilterExpr.GetSubExpr(i : Integer) : TExprBase;
+begin
+   if i = 0 then
+      Result := BaseExpr
+   else Result := FilterFuncExpr;
+end;
+
+// GetSubExprCount
+//
+function TArrayFilterExpr.GetSubExprCount : Integer;
+begin
+   Result := 2;
 end;
 
 // ------------------
@@ -10608,6 +11286,13 @@ begin
    inherited;
 end;
 
+// EnumerateSteppableExprs
+//
+procedure TForInStrExpr.EnumerateSteppableExprs(const callback : TExprBaseProc);
+begin
+   callback(DoExpr);
+end;
+
 // GetSubExpr
 //
 function TForInStrExpr.GetSubExpr(i : Integer) : TExprBase;
@@ -11049,7 +11734,7 @@ var
 begin
    inherited;
    a := (expr.Typ.UnAliasedType as TAssociativeArraySymbol);
-   Typ := a.KeysArrayType(context.TypInteger);
+   Typ := a.KeysArrayType(context);
 end;
 
 // EvalAsVariant

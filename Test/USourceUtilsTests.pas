@@ -33,30 +33,43 @@ type
          procedure EmptyOptimizedLocalTable;
          procedure StringTest;
          procedure StaticArrayTest;
+         procedure StaticArrayRecordTest;
          procedure DynamicArrayTest;
          procedure ObjectArrayTest;
          procedure AssociativeArrayTest;
          procedure HelperSuggestTest;
+         procedure FunctionReturningArrayTest;
          procedure JSONVariantSuggestTest;
          procedure SuggestInUsesSection;
          procedure SuggestAfterCall;
          procedure SuggestAcrossLines;
+         procedure ForVariable;
          procedure ReferencesVars;
          procedure InvalidExceptSuggest;
          procedure EnumerationNamesAndValues;
          procedure BigEnumerationNamesAndValues;
          procedure EnumerationSuggest;
+         procedure SetOfSuggest;
          procedure StaticClassSuggest;
          procedure ClassFieldSuggest;
          procedure RecordConstSuggest;
          procedure SuggestInBlockWithError;
          procedure NormalizeOverload;
+         procedure NormalizeImplicit;
+         procedure NormalizeTypes;
+         procedure NormalizeMagics;
+         procedure NormalizeForVarIn;
+         procedure NormalizeKeywords;
+         procedure NormalizeEscapedNames;
          procedure OptimizedIfThenBlockSymbol;
          procedure MemberVisibilities;
          procedure UnitNamesSuggest;
          procedure OverloadSuggest;
+         procedure LengthDotSuggest;
          procedure PropertyDescription;
          procedure ImplementationSuggest;
+         procedure ParameterSuggest;
+         procedure FunctionCaptionDescription;
    end;
 
 // ------------------------------------------------------------------
@@ -361,15 +374,34 @@ begin
    scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 2, 3);
    sugg:=TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
 
-   CheckTrue(sugg.Count=3, 's.');
-   CheckEquals('High', sugg.Code[0], 's. 0');
-   CheckEquals('Length', sugg.Code[1], 's. 1');
-   CheckEquals('Low', sugg.Code[2], 's. 2');
+   CheckTrue(sugg.Count=4, 's.');
+   CheckEquals('Count', sugg.Code[0], 's. 0');
+   CheckEquals('High', sugg.Code[1], 's. 1');
+   CheckEquals('Length', sugg.Code[2], 's. 2');
+   CheckEquals('Low', sugg.Code[3], 's. 3');
 
    scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 2, 4);
    sugg:=TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
    CheckTrue(sugg.Count=1, 's.h');
    CheckEquals('High', sugg.Code[0], 's.h 0');
+end;
+
+// StaticArrayRecordTest
+//
+procedure TSourceUtilsTests.StaticArrayRecordTest;
+var
+   prog : IdwsProgram;
+   sugg : IdwsSuggestions;
+   scriptPos : TScriptPos;
+begin
+   prog:=FCompiler.Compile( 'const s : array [1..2] of record xy : Integer end = [('#13#10
+                           +' )];');
+
+   scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 2, 1);
+   sugg := TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
+
+   CheckTrue(sugg.Count > 0, 'rec field');
+   CheckEquals('xy', sugg.Code[0], 'sugg 0');
 end;
 
 // DynamicArrayTest
@@ -385,27 +417,15 @@ begin
    scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 2, 3);
    sugg:=TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
 
-   CheckEquals(20, sugg.Count, 'd.');
-   CheckEquals('Add', sugg.Code[0], 'd. 0');
-   CheckEquals('Clear', sugg.Code[1], 'd. 1');
-   CheckEquals('Copy', sugg.Code[2], 'd. 2');
-   CheckEquals('Count', sugg.Code[3], 'd. 3');
-   CheckEquals('Delete', sugg.Code[4], 'd. 4');
-   CheckEquals('High', sugg.Code[5], 'd. 5');
-   CheckEquals('IndexOf', sugg.Code[6], 'd. 6');
-   CheckEquals('Insert', sugg.Code[7], 'd. 7');
-   CheckEquals('Length', sugg.Code[8], 'd. 8');
-   CheckEquals('Low', sugg.Code[9], 'd. 9');
-   CheckEquals('Map', sugg.Code[10], 'd. 10');
-   CheckEquals('Move', sugg.Code[11], 'd. 11');
-   CheckEquals('Peek', sugg.Code[12], 'd. 12');
-   CheckEquals('Pop', sugg.Code[13], 'd. 13');
-   CheckEquals('Push', sugg.Code[14], 'd. 14');
-   CheckEquals('Remove', sugg.Code[15], 'd. 15');
-   CheckEquals('Reverse', sugg.Code[16], 'd. 16');
-   CheckEquals('SetLength', sugg.Code[17], 'd. 17');
-   CheckEquals('Sort', sugg.Code[18], 'd. 18');
-   CheckEquals('Swap', sugg.Code[19], 'd. 19');
+   var expected := [
+      'Add', 'Clear', 'Copy', 'Count', 'Delete', 'Filter', 'High',
+      'IndexOf', 'Insert', 'Length', 'Low', 'Map', 'Move',
+      'Peek', 'Pop', 'Push', 'Remove', 'Reverse',
+      'SetLength', 'Sort', 'Swap'
+   ];
+   CheckEquals(Length(expected), sugg.Count, 'd. Length');
+   for var i := 0 to High(expected) do
+      CheckEquals(expected[i], sugg.Code[i], 'd. ' + IntToStr(i));
 end;
 
 // ObjectArrayTest
@@ -457,10 +477,10 @@ end;
 //
 procedure TSourceUtilsTests.HelperSuggestTest;
 const
-   cSugg : array [0..14] of String = (
-      'Clamp', 'Factorial', 'Hello', 'IsOdd', 'IsPrime', 'LeastFactor', 'Max',
-      'Min', 'Next', 'Sign', 'Sqr', 'ToBin', 'ToHexString', 'ToString',
-      'Unsigned32'
+   cSugg : array [0..19] of String = (
+      'Abs', 'Clamp', 'Compare', 'Compare', 'Factorial', 'Hello', 'IsOdd', 'IsPrime',
+      'LeastFactor', 'Max', 'Min', 'Next', 'PopCount', 'Sign', 'Sqr', 'TestBit',
+      'ToBin', 'ToHexString', 'ToString', 'Unsigned32'
       );
 
 var
@@ -487,6 +507,32 @@ begin
    CheckEquals('Next', sugg.Code[0]);
    CheckEquals(Ord(scFunction), Ord(sugg.Category[0]), 'scFunction');
    CheckEquals('Next () : Integer', sugg.Caption[0]);
+end;
+
+// FunctionReturningArrayTest
+//
+procedure TSourceUtilsTests.FunctionReturningArrayTest;
+
+   procedure CheckIsJoin(const code : String);
+   var
+      prog : IdwsProgram;
+      sugg : IdwsSuggestions;
+      scriptPos : TScriptPos;
+   begin
+      prog := FCompiler.Compile(code);
+
+      scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 2, Length(code)-Pos(#10, code)+1);
+      sugg := TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
+
+      CheckEquals(1, sugg.Count, code);
+      CheckEquals('Join', sugg.Code[0], code);
+   end;
+
+begin
+//   CheckIsJoin('function Test : array of String; begin end;'#13#10'Test.Jo');
+//   CheckIsJoin('function Test : array of String; begin end;'#13#10'Test().Jo');
+//   CheckIsJoin('function Test : array of String; begin end;'#13#10'StrSplit("Test").Jo');
+   CheckIsJoin('function Test : array of String; begin end;'#13#10'Test.Map(Trim).Jo');
 end;
 
 // JSONVariantSuggestTest
@@ -613,6 +659,29 @@ begin
    CheckEquals('LowerCase', sugg.Code[1], '.L 1');
 end;
 
+// ForVariable
+//
+procedure TSourceUtilsTests.ForVariable;
+var
+   prog : IdwsProgram;
+   sugg : IdwsSuggestions;
+   scriptPos : TScriptPos;
+begin
+   prog:=FCompiler.Compile('var a : array of String;'#10
+                           +'for var test1 := 0 to 10 do'#10
+                           +'for var test2 in a do begin'#10
+                           +'teS'#10
+                           +'end;');
+
+   scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 4, 4);
+   sugg:=TdwsSuggestions.Create(prog, scriptPos, [soNoReservedWords]);
+
+   CheckEquals(3, sugg.Count, 'tes');
+   CheckEquals('test1', sugg.Code[0], 'tes 0');
+   CheckEquals('test2', sugg.Code[1], 'tes 1');
+   CheckEquals('TestBit', sugg.Code[2], 'tes 2');
+end;
+
 // ReferencesVars
 //
 procedure TSourceUtilsTests.ReferencesVars;
@@ -629,12 +698,12 @@ begin
    CheckEquals('', prog.Msgs.AsInfo);
 
    sym:=TDataSymbol(prog.Table.FindSymbol('i', cvMagic, TDataSymbol));
-   CheckEquals('TDataSymbol', sym.ClassName, 'i class');
+   CheckEquals(TVarDataSymbol.ClassName, sym.ClassName, 'i class');
 
    CheckTrue(prog.ProgramObject.Expr.ReferencesVariable(sym), 'referenced in program');
 
    funcSym:=prog.Table.FindSymbol('Test', cvMagic);
-   CheckEquals('TSourceFuncSymbol', funcSym.ClassName, 'Test class');
+   CheckEquals(TSourceFuncSymbol.ClassName, funcSym.ClassName, 'Test class');
 
    funcExec:=(funcSym as TFuncSymbol).Executable;
    CheckFalse((funcExec.GetSelf as TdwsProgram).Expr.ReferencesVariable(sym), 'not referenced in test');
@@ -732,7 +801,8 @@ begin
    prog:=FCompiler.Compile( 'type TTest = (One);'#13#10
                            +'Print(TTest.One.Name);'#13#10
                            +'var i : TTest;'#13#10
-                           +'Print(i.Value);'#13#10);
+                           +'Print(i.Value);'#13#10
+                           +'Print(i.QualifiedName);'#13#10);
 
    CheckEquals('', prog.Msgs.AsInfo, 'compiled with errors');
 
@@ -751,8 +821,35 @@ begin
    scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 4, 10);
 
    sugg:=TdwsSuggestions.Create(prog, scriptPos);
-   CheckEquals(1, sugg.Count, 'column 10');
+   CheckEquals(1, sugg.Count, 'column 10 v');
    CheckEquals('Value', sugg.Code[0], 'sugg 4, 10, 0');
+
+   scriptPos:=TScriptPos.Create(prog.SourceList[0].SourceFile, 5, 10);
+
+   sugg:=TdwsSuggestions.Create(prog, scriptPos);
+   CheckEquals(1, sugg.Count, 'column 10 q');
+   CheckEquals('QualifiedName', sugg.Code[0], 'sugg 5, 10, 0');
+end;
+
+// SetOfSuggest
+//
+procedure TSourceUtilsTests.SetOfSuggest;
+var
+   prog : IdwsProgram;
+   sugg : IdwsSuggestions;
+   scriptPos : TScriptPos;
+begin
+   prog:=FCompiler.Compile( 'type TTest = (One);'#13#10
+                           +'type TSet = set of TTest;'#13#10
+                           +'var i : TSet;'#13#10
+                           +'i.');
+
+   scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 4, 3);
+
+   sugg := TdwsSuggestions.Create(prog, scriptPos);
+   CheckEquals(2, sugg.Count, 'set of methods');
+   CheckEquals('Exclude', sugg.Code[0], 'sugg 0');
+   CheckEquals('Include', sugg.Code[1], 'sugg 1');
 end;
 
 // StaticClassSuggest
@@ -803,7 +900,7 @@ var
    sugg : IdwsSuggestions;
    scriptPos : TScriptPos;
 begin
-   prog:=FCompiler.Compile( 'type TTest = class fi : Integer; fs : String;'#13#10
+   prog:=FCompiler.Compile( 'type TTest = class private fb : Boolean; protected fi : Integer; fs : String; public'#13#10
                            +'class const fc = 123;'#13#10
                            +'property F : Integer read '#13#10
                            +'f');
@@ -811,11 +908,12 @@ begin
    scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 4, 2);
 
    sugg:=TdwsSuggestions.Create(prog, scriptPos);
-   Check(sugg.Count > 3);
-   CheckEquals('fc', sugg.Code[0]);
-   CheckEquals('fi', sugg.Code[1]);
-   CheckEquals('fs', sugg.Code[2]);
-   CheckEquals('Factorial', sugg.Code[3]);
+   Check(sugg.Count > 4);
+   CheckEquals('fb', sugg.Code[0]);
+   CheckEquals('fc', sugg.Code[1]);
+   CheckEquals('fi', sugg.Code[2]);
+   CheckEquals('fs', sugg.Code[3]);
+   CheckEquals('Factorial', sugg.Code[4]);
 end;
 
 // RecordConstSuggest
@@ -915,6 +1013,24 @@ begin
    CheckEquals('Toto (s: String) : String', sugg.Caption[1]);
 end;
 
+// LengthDotSuggest
+//
+procedure TSourceUtilsTests.LengthDotSuggest;
+var
+   prog : IdwsProgram;
+   sugg : IdwsSuggestions;
+   scriptPos : TScriptPos;
+begin
+   prog := FCompiler.Compile( 'var s : String;'#13#10
+                            + 'PrintLn(s.Length.tos');
+
+   scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 2, 21);
+
+   sugg := TdwsSuggestions.Create(prog, scriptPos);
+   CheckEquals(1, sugg.Count);
+   CheckEquals('ToString () : String', sugg.Caption[0]);
+end;
+
 // PropertyDescription
 //
 procedure TSourceUtilsTests.PropertyDescription;
@@ -981,6 +1097,58 @@ begin
    CheckEquals('zzz ()', sugg.Caption[1]);
 end;
 
+// ParameterSuggest
+//
+procedure TSourceUtilsTests.ParameterSuggest;
+var
+   prog : IdwsProgram;
+   sugg : IdwsSuggestions;
+   scriptPos : TScriptPos;
+begin
+   prog := FCompiler.Compile(
+          'var myvariable: string;'#10
+         +#10
+         +'procedure foo(const att: Boolean);'#10
+         +'var'#10
+         +'  lcl: Boolean;'#10
+         +'begin'#10
+         +'  {here}'#10
+         +'end;'#10
+   );
+   CheckFalse(prog.Msgs.HasErrors, prog.Msgs.AsInfo);
+
+   scriptPos := TScriptPos.Create(prog.SourceList[0].SourceFile, 7, 3);
+   sugg := TdwsSuggestions.Create(prog, scriptPos);
+
+   CheckTrue(sugg.Count > 2);
+   CheckEquals('att : Boolean', sugg.Caption[0]);
+   CheckEquals('lcl : Boolean', sugg.Caption[1]);
+end;
+
+// FunctionCaptionDescription
+//
+procedure TSourceUtilsTests.FunctionCaptionDescription;
+var
+   prog : IdwsProgram;
+begin
+   prog := FCompiler.Compile(
+          'function  Test1(a, b : Integer; const c : String; var d : Boolean; e : type Boolean) : String; begin end;'#10
+         +'function  Test2(const a, b : String; c : String; var d : Boolean; var e : Boolean) : String; begin end;'#10
+         +'procedure Test3(a, b : Integer; c : type Integer; d : Boolean; var e : Boolean); begin end;'#10
+         +'procedure Test4(var a, b : Integer; const c : Integer; d : Boolean; e : Boolean); begin end;'#10
+   );
+   CheckFalse(prog.Msgs.HasErrors, prog.Msgs.AsInfo);
+
+   CheckEquals('function Test1(a: Integer; b: Integer; const c: String; var d: Boolean; e: type Boolean): String',
+               prog.Table.FindSymbol('Test1', cvMagic).Description, 'Test1');
+   CheckEquals('function Test2(const a: String; const b: String; c: String; var d: Boolean; var e: Boolean): String',
+               prog.Table.FindSymbol('Test2', cvMagic).Description, 'Test2');
+   CheckEquals('procedure Test3(a: Integer; b: Integer; c: type Integer; d: Boolean; var e: Boolean)',
+               prog.Table.FindSymbol('Test3', cvMagic).Description, 'Test3');
+   CheckEquals('procedure Test4(var a: Integer; var b: Integer; const c: Integer; d: Boolean; e: Boolean)',
+               prog.Table.FindSymbol('Test4', cvMagic).Description, 'Test4');
+end;
+
 // SuggestInBlockWithError
 //
 procedure TSourceUtilsTests.SuggestInBlockWithError;
@@ -1024,12 +1192,12 @@ begin
    try
       lines.Text:= 'unit Unit1;'#13#10
                   +'interface'#13#10
-                  +'procedure Test(const A, Blah: string; const C: string); overload;'#13#10
+                  +'procedure Test(const A, Blah: String; const C: string); overload;'#13#10
                   +'procedure Test; overload;'#13#10
                   +'implementation'#13#10
-                  +'procedure Test(const A, Blah: string; const C: string);'#13#10
+                  +'procedure test(const A, Blah: string; const C: String);'#13#10
                   +'begin end;'#13#10
-                  +'procedure Test;'#13#10
+                  +'procedure test;'#13#10
                   +'begin end;';
 
       prog:=FCompiler.Compile(lines.Text);
@@ -1040,6 +1208,230 @@ begin
       try
          NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
                               normalizer.Normalize);
+         CheckEquals('3, 48, String'#13#10'6, 11, Test'#13#10'6, 31, String'#13#10'8, 11, Test'#13#10, normalizer.Text);
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeImplicit
+//
+procedure TSourceUtilsTests.NormalizeImplicit;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text:= 'function Test(a : Integer) : Integer;'#13#10
+                  +'begin'#13#10
+                  +'Exit(a);'#13#10
+                  +'end;';
+
+      prog:=FCompiler.Compile(lines.Text);
+
+      CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors');
+
+      normalizer:=TTestNormalizer.Create;
+      try
+         NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
+                              normalizer.Normalize);
+         CheckEquals('', normalizer.Text);
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeTypes
+//
+procedure TSourceUtilsTests.NormalizeTypes;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text:= 'type TProc = procedure;'#13#10
+                  +'type TFunc = function(proc : tproc): tProc;'#13#10
+                  +'var f : TFunC;'#13#10;
+
+      prog:=FCompiler.Compile(lines.Text);
+
+      CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors');
+
+      normalizer:=TTestNormalizer.Create;
+      try
+         NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
+                              normalizer.Normalize);
+         CheckEquals(
+              'type TProc = procedure;'#13#10
+            + 'type TFunc = function(proc : TProc): TProc;'#13#10
+            + 'var f : TFunc;'#13#10,
+            lines.Text
+         );
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeMagics
+//
+procedure TSourceUtilsTests.NormalizeMagics;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text := 'var s : String; var a : array of String;'#13#10
+                  + 'PrintLn(s.length + s.high + s.low + a.length + a.high + a.low);'#13#10;
+
+      prog := FCompiler.Compile(lines.Text);
+
+      CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors');
+
+      normalizer := TTestNormalizer.Create;
+      try
+         NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
+                              normalizer.Normalize);
+         CheckEquals(
+              'var s : String; var a : array of String;'#13#10
+            + 'PrintLn(s.Length + s.High + s.Low + a.Length + a.High + a.Low);'#13#10,
+            lines.Text
+         );
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeForVarIn
+//
+procedure TSourceUtilsTests.NormalizeForVarIn;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text := 'var i : integer; type TEnum = (One, Two); var a := [1, 2];'#13#10
+                  + 'for var e in tenum do PrintLn(integer(E));'#13#10
+                  + 'for var j in A do PrintLn(A[J]);'#13#10
+                  + 'for I in A do PrintLn(A[I].tostring);'#13#10;
+
+      prog := FCompiler.Compile(lines.Text);
+
+      CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors');
+
+      normalizer := TTestNormalizer.Create;
+      try
+         NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
+                              normalizer.Normalize);
+         CheckEquals(
+              'var i : Integer; type TEnum = (One, Two); var a := [1, 2];'#13#10
+            + 'for var e in TEnum do PrintLn(Integer(e));'#13#10
+            + 'for var j in a do PrintLn(a[j]);'#13#10
+            + 'for i in a do PrintLn(a[i].ToString);'#13#10,
+            lines.Text
+         );
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeKeywords
+//
+procedure TSourceUtilsTests.NormalizeKeywords;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text := 'Var b := TRUE; begIn IF nOt B tHEN b := false ELSE b := NIL <> nIL; enD;'#13#10
+                  + 'WHILE b do BREAK;'#13#10
+                  + 'FOR VAR i := 0 To 1 dO CASE I OF 1 : ; eLSE END;'#13#10;
+
+      FCompiler.Config.CompilerOptions := FCompiler.Config.CompilerOptions + [ coHintKeywordCaseMismatch ];
+      FCompiler.Config.HintsLevel := hlPedantic;
+      try
+         prog := FCompiler.Compile(lines.Text);
+      finally
+         FCompiler.Config.HintsLevel := hlStrict;
+         FCompiler.Config.CompilerOptions := FCompiler.Config.CompilerOptions - [ coHintKeywordCaseMismatch ];
+      end;
+
+      Check(prog.Msgs.Count > 0, 'should have compiled with hints');
+
+      normalizer := TTestNormalizer.Create;
+      try
+         NormalizeKeywordCase(lines, prog.SourceList[0].SourceFile, prog.Msgs,
+                              normalizer.Normalize);
+         CheckEquals(
+              'var b := True; begin if not B then b := False else b := nil <> nil; end;'#13#10
+            + 'while b do break;'#13#10
+            + 'for var i := 0 to 1 do case I of 1 : ; else end;'#13#10,
+            lines.Text
+         );
+      finally
+         normalizer.Free;
+      end;
+   finally
+      lines.Free;
+   end;
+end;
+
+// NormalizeEscapedNames
+//
+procedure TSourceUtilsTests.NormalizeEscapedNames;
+var
+   prog : IdwsProgram;
+   lines : TStringList;
+   normalizer : TTestNormalizer;
+begin
+   lines := TStringList.Create;
+   try
+      lines.Text := 'var t := record "Hello" : String; &World : Boolean; end;'#13#10
+                  + 't.hello := "a";'#13#10
+                  + 't.&hello := "b";'#13#10
+                  + 't.world := True;'#13#10
+                  + 't.&world := False;'#13#10;
+
+      prog := FCompiler.Compile(lines.Text);
+
+      Check(prog.Msgs.Count = 0, Prog.Msgs.AsInfo);
+
+      normalizer := TTestNormalizer.Create;
+      try
+         NormalizeSymbolsCase(lines, prog.SourceList[0].SourceFile, prog.SymbolDictionary,
+                              normalizer.Normalize);
+         CheckEquals(
+              'var t := record "Hello" : String; &World : Boolean; end;'#13#10
+            + 't.Hello := "a";'#13#10
+            + 't.&Hello := "b";'#13#10
+            + 't.World := True;'#13#10
+            + 't.&World := False;'#13#10,
+            lines.Text
+         );
       finally
          normalizer.Free;
       end;
@@ -1052,11 +1444,12 @@ end;
 //
 procedure TSourceUtilsTests.OptimizedIfThenBlockSymbol;
 
-   procedure CheckSymbols(dic : TdwsSymbolDictionary);
+   procedure CheckSymbols(const prefix : String; dic : TdwsSymbolDictionary);
    begin
-      CheckEquals(1, dic.Count, 'nb');
-      Check(dic.FindSymbolPosList('xyz') <> nil, 'exists');
-      CheckEquals(1, dic.FindSymbolPosList('xyz').Count, 'usage');
+      CheckEquals(2, dic.Count, prefix+'nb');
+      Check(dic.FindSymbolPosList('xyz') <> nil, prefix+'exists');
+      CheckEquals(1, dic.FindSymbolPosList('xyz').Count, prefix+'usage');
+      CheckEquals(1, dic.FindSymbolPosList('String').Count, prefix+'string');
    end;
 
 var
@@ -1072,7 +1465,7 @@ begin
                               +'end;');
       CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors 1');
 
-      CheckSymbols(prog.SymbolDictionary);
+      CheckSymbols('a.', prog.SymbolDictionary);
 
       FCompiler.Config.CompilerOptions := options;
 
@@ -1081,7 +1474,7 @@ begin
                               +'end;');
       CheckEquals('', prog.Msgs.AsInfo, 'should have compiled without errors 2');
 
-      CheckSymbols(prog.SymbolDictionary);
+      CheckSymbols('b.', prog.SymbolDictionary);
    finally
       FCompiler.Config.CompilerOptions := options;
    end;

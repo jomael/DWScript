@@ -25,7 +25,8 @@ uses
    dwsErrors, dwsStrings, dwsXPlatform, dwsUtils, dwsScriptSource,
    dwsSymbols, dwsUnitSymbols, dwsCompilerContext, dwsExprList,
    dwsExprs, dwsCoreExprs, dwsConstExprs, dwsMethodExprs, dwsMagicExprs,
-   dwsConvExprs, dwsTokenizer, dwsOperators, dwsConnectorSymbols;
+   dwsConvExprs, dwsTokenizer, dwsOperators, dwsConnectorSymbols,
+   dwsArrayMethodKinds;
 
 type
 
@@ -79,14 +80,6 @@ type
          constructor Create(typ : PTypeInfo; low, high, prefixLength : Integer);
    end;
 
-   TArrayMethodKind = (
-      amkNone,
-      amkAdd, amkPush, amkIndexOf, amkRemove, amkSort, amkMap, amkHigh, amkLow,
-      amkLength, amkCount, amkPop, amkPeek, amkDelete, amkInsert, amkSetLength,
-      amkClear, amkSwap, amkCopy, amkReverse, amkDimCount, amkKeys, amkMove
-   );
-
-
 function NameToArrayMethod(const name : String; msgs : TdwsCompileMessageList;
                            const namePos : TScriptPos) : TArrayMethodKind;
 
@@ -117,6 +110,10 @@ function ResolveOperatorFor(currentProg : TdwsProgram; token : TTokenType;
 function CreateTypedOperatorExpr(context : TdwsCompilerContext; token : TTokenType;
                                  const scriptPos : TScriptPos;
                                  aLeft, aRight : TTypedExpr) : TTypedExpr;
+
+function CreateDynamicArraySetExpr(context : TdwsCompilerContext; const scriptPos : TScriptPos;
+                                   arrayExpr, indexExpr, valueExpr : TTypedExpr) : TDynamicArraySetExpr;
+
 
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
@@ -416,6 +413,7 @@ var
    helper : THelperSymbol;
    internalFunc : TInternalMagicFunction;
    classSymbol : TClassSymbol;
+   magicMethodSym : TMagicMethodSymbol;
 begin
    if meth is TAliasMethodSymbol then begin
 
@@ -430,13 +428,23 @@ begin
 
    if meth is TMagicMethodSymbol then begin
 
-      if meth is TMagicStaticMethodSymbol then begin
+      magicMethodSym := TMagicMethodSymbol(meth);
+      if magicMethodSym is TMagicStaticMethodSymbol then begin
          dwsFreeAndNil(expr);
-         internalFunc:=TMagicStaticMethodSymbol(meth).InternalFunction;
-         Result:=internalFunc.MagicFuncExprClass.Create(context, scriptPos, meth, internalFunc);
+         internalFunc := TMagicStaticMethodSymbol(meth).InternalFunction;
+         Result := internalFunc.MagicFuncExprClass.Create(context, scriptPos, meth, internalFunc);
       end else begin
-         Result := TMagicMethodExpr.Create(context, scriptPos, meth, expr);
-         TMagicMethodExpr(Result).OnFastEval := TMagicMethodSymbol(meth).OnFastEval;
+         if Assigned(magicMethodSym.OnFastEvalString) then
+            Result := TMagicMethodStringExpr.Create(context, scriptPos, magicMethodSym, expr)
+         else if Assigned(magicMethodSym.OnFastEvalInteger) then
+            Result := TMagicMethodIntegerExpr.Create(context, scriptPos, magicMethodSym, expr)
+         else if Assigned(magicMethodSym.OnFastEvalBoolean) then
+            Result := TMagicMethodBooleanExpr.Create(context, scriptPos, magicMethodSym, expr)
+         else if Assigned(magicMethodSym.OnFastEvalFloat) then
+            Result := TMagicMethodFloatExpr.Create(context, scriptPos, magicMethodSym, expr)
+         else if Assigned(magicMethodSym.OnFastEvalNoResult) then
+            Result := TMagicMethodNoResultExpr.Create(context, scriptPos, magicMethodSym, expr)
+         else Result := TMagicMethodExpr.Create(context, scriptPos, magicMethodSym, expr);
       end;
 
    end else if meth.StructSymbol is TInterfaceSymbol then begin
@@ -475,12 +483,16 @@ begin
 
       // Return the right expression
       case meth.Kind of
-         fkFunction, fkProcedure, fkMethod, fkLambda:
+         fkFunction, fkProcedure, fkMethod, fkLambda: begin
+
             if meth.IsClassMethod then begin
+
                if not (cfoForceStatic in options) and meth.IsVirtual then
                   Result := TClassMethodVirtualExpr.Create(context, scriptPos, meth, expr)
                else Result := TClassMethodStaticExpr.Create(context, scriptPos, meth, expr)
+
             end else begin
+
                if RefKind=rkClassOfRef then
                   context.Msgs.AddCompilerError(scriptPos, CPE_StaticMethodExpected)
                else if expr.Typ is TClassOfSymbol then
@@ -488,29 +500,46 @@ begin
                if not (cfoForceStatic in options) and meth.IsVirtual then
                   Result := TMethodVirtualExpr.Create(context, scriptPos, meth, expr)
                else Result := TMethodStaticExpr.Create(context, scriptPos, meth, expr);
+
             end;
-         fkConstructor:
+
+         end;
+         fkConstructor: begin
+
             if RefKind = rkClassOfRef then begin
+
+               if expr.Typ.ClassType = TClassOfSymbol then
+                  classSymbol := TClassOfSymbol(expr.Typ).TypClassSymbol
+               else classSymbol := expr.Typ as TClassSymbol;
+               if classSymbol.IsInternal then
+                  context.Msgs.AddCompilerErrorFmt(scriptPos, CPE_InternalConstructorCall, [ classSymbol.Name ]);
+
                if not (cfoForceStatic in options) and meth.IsVirtual then
                   Result := TConstructorVirtualExpr.Create(context, scriptPos, meth, expr)
                else if meth = context.TypDefaultConstructor then
                   Result := TConstructorStaticDefaultExpr.Create(context, scriptPos, meth, expr)
                else Result := TConstructorStaticExpr.Create(context, scriptPos, meth, expr);
+
             end else begin
+
                if not ((context.Prog is TdwsProcedure) and (TdwsProcedure(context.Prog).Func.Kind=fkConstructor)) then
                   context.Msgs.AddCompilerWarning(scriptPos, CPE_UnexpectedConstructor);
                if not (cfoForceStatic in options) and meth.IsVirtual then
                   Result := TConstructorVirtualObjExpr.Create(context, scriptPos, meth, expr)
                else Result := TConstructorStaticObjExpr.Create(context, scriptPos, meth, expr);
+
             end;
-         fkDestructor:
-            begin
-               if RefKind=rkClassOfRef then
-                  context.Msgs.AddCompilerError(scriptPos, CPE_UnexpectedDestructor);
-               if not (cfoForceStatic in options) and meth.IsVirtual then
-                  Result := TDestructorVirtualExpr.Create(context, scriptPos, meth, expr)
-               else Result := TDestructorStaticExpr.Create(context, scriptPos, meth, expr)
-            end;
+
+         end;
+         fkDestructor: begin
+
+            if RefKind=rkClassOfRef then
+               context.Msgs.AddCompilerError(scriptPos, CPE_UnexpectedDestructor);
+            if not (cfoForceStatic in options) and meth.IsVirtual then
+               Result := TDestructorVirtualExpr.Create(context, scriptPos, meth, expr)
+            else Result := TDestructorStaticExpr.Create(context, scriptPos, meth, expr)
+
+         end;
       else
          Assert(False);
       end;
@@ -631,8 +660,8 @@ begin
 
       argTyp:=arg.Typ;
       // Wrap-convert arguments if necessary and possible
-      if paramSymbol.ClassType<>TVarParamSymbol then begin
-         arg:=TConvExpr.WrapWithConvCast(context, argPos, paramSymbol.Typ, arg, '');
+      if not paramSymbol.ForbidImplicitCasts then begin
+         arg := TConvExpr.WrapWithConvCast(context, argPos, paramSymbol.Typ, arg, '');
       end;
       funcExpr.Args.ExprBase[i] := arg;
 
@@ -767,6 +796,24 @@ begin
       TypeCheckArguments(context, funcExpr, nil);
       Result:=funcExpr;
    end;
+end;
+
+// CreateDynamicArraySetExpr
+//
+function CreateDynamicArraySetExpr(context : TdwsCompilerContext; const scriptPos : TScriptPos;
+                                   arrayExpr, indexExpr, valueExpr : TTypedExpr) : TDynamicArraySetExpr;
+var
+   typSize : Integer;
+begin
+   if valueExpr.Typ <> nil then begin
+      typSize := valueExpr.Typ.Size;
+      Assert(arrayExpr.Typ.Typ.Size = typSize);
+   end else typSize :=  1;
+   if typSize = 1 then
+      if arrayExpr is TObjectVarExpr then
+         Result := TDynamicArraySetVarExpr.Create(context, scriptPos, arrayExpr, indexExpr, valueExpr)
+      else Result := TDynamicArraySetExpr.Create(context, scriptPos, arrayExpr, indexExpr, valueExpr)
+   else Result := TDynamicArraySetDataExpr.Create(context, scriptPos, arrayExpr, indexExpr, valueExpr);
 end;
 
 // ------------------

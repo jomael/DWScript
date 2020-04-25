@@ -145,7 +145,7 @@ begin
          fileInfo.zfullSize := zipCompressor.SizeIn;
          fileInfo.zzipSize := zipCompressor.SizeOut;
          fileInfo.zzipMethod := Z_DEFLATED;
-         fileInfo.zlastMod := DateTimeToDosDateTime(FileDateTime(aFileName));
+         fileInfo.zlastMod := FileDateTime(aFileName).AsDosDateTime;
          offsetEnd := destStream.Position;
          destStream.Position := offsetHead+SizeOf(fMagic);
          destStream.Write(fhr.fileInfo, SizeOf(fhr.fileInfo));
@@ -254,13 +254,13 @@ var
    z : TScriptZipRead;
    fileName : String;
 begin
-   z:=TScriptZipRead(ExtObject);
-   i:=z.CheckedIndex(Info);
-   fileName:=Info.ParamAsFileName[1];
+   z := TScriptZipRead(ExtObject);
+   i := z.CheckedIndex(Info);
+   fileName := Info.ParamAsFileName[1];
    if ForceDirectories(ExtractFilePath(fileName)) then begin
       z.UnZip(i, fileName, True);
-      Info.ResultAsBoolean:=True;
-   end else Info.ResultAsBoolean:=False;
+      Info.ResultAsBoolean := True;
+   end else Info.ResultAsBoolean := False;
 end;
 
 procedure TdwsZipLib.dwsZipClassesTZipWriterCleanUp(ExternalObject: TObject);

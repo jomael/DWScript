@@ -17,7 +17,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsGetHeaderFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsGetHeaderFastEvalString
             Visibility = cvProtected
             Kind = mkClassFunction
           end
@@ -30,7 +30,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsGetCookieFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsGetCookieFastEvalString
             Visibility = cvProtected
             Kind = mkClassFunction
           end
@@ -43,7 +43,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsGetQueryFieldFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsGetQueryFieldFastEvalString
             Visibility = cvProtected
             Kind = mkClassFunction
           end
@@ -56,7 +56,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'Boolean'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsHasQueryFieldFastEval
+            OnFastEvalBoolean = dwsWebClassesWebRequestMethodsHasQueryFieldFastEvalBoolean
             Kind = mkClassFunction
           end
           item
@@ -68,7 +68,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsGetContentFieldFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsGetContentFieldFastEvalString
             Visibility = cvProtected
             Kind = mkClassFunction
           end
@@ -81,140 +81,147 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'Boolean'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsHasContentFieldFastEval
+            OnFastEvalBoolean = dwsWebClassesWebRequestMethodsHasContentFieldFastEvalBoolean
             Kind = mkClassFunction
           end
           item
             Name = 'FullURL'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsFullURLFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsFullURLFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'URL'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsURLFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsURLFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'RawURL'
             ResultType = 'String'
             Attributes = [maClassMethod, maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsRawURLFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsRawURLFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Method'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsMethodFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsMethodFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Host'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsHostFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsHostFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'PathInfo'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsPathInfoFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsPathInfoFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'QueryString'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsQueryStringFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsQueryStringFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'RemoteIP'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsRemoteIPFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsRemoteIPFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Headers'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsHeadersFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsHeadersFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Cookies'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsCookiesFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsCookiesFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'QueryFields'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsQueryFieldsFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsQueryFieldsFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Security'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsSecurityFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsSecurityFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'UserAgent'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsUserAgentFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsUserAgentFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'AuthenticatedUser'
             ResultType = 'String'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsAuthenticatedUserFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsAuthenticatedUserFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'Authentication'
             ResultType = 'WebAuthentication'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsAuthenticationFastEval
+            OnFastEvalInteger = dwsWebClassesWebRequestMethodsAuthenticationFastEvalInteger
             Kind = mkClassFunction
           end
           item
             Name = 'ContentType'
             ResultType = 'String'
             Attributes = [maClassMethod, maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsContentTypeFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsContentTypeFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'ContentData'
             ResultType = 'String'
             Attributes = [maClassMethod, maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsContentDataFastEval
+            OnFastEvalString = dwsWebClassesWebRequestMethodsContentDataFastEvalString
             Kind = mkClassFunction
           end
           item
             Name = 'ContentLength'
             ResultType = 'Integer'
             Attributes = [maClassMethod, maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsContentLengthFastEval
+            OnFastEvalInteger = dwsWebClassesWebRequestMethodsContentLengthFastEvalInteger
             Kind = mkClassFunction
           end
           item
             Name = 'IfModifiedSince'
             ResultType = 'Float'
             Attributes = [maStatic]
-            OnFastEval = dwsWebClassesWebRequestMethodsIfModifiedSinceFastEval
+            OnFastEvalFloat = dwsWebClassesWebRequestMethodsIfModifiedSinceFastEvalFloat
+            Kind = mkClassFunction
+          end
+          item
+            Name = 'IfNoneMatch'
+            ResultType = 'String'
+            Attributes = [maStatic]
+            OnFastEvalString = dwsWebClassesWebRequestMethodsIfNoneMatchFastEvalString
             Kind = mkClassFunction
           end>
         Properties = <
@@ -271,7 +278,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'Integer'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetStatusCodeEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetStatusCodeFastEvalNoResult
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -283,7 +290,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsContentDataEval
+            OnFastEvalString = dwsWebClassesWebResponseMethodsSetContentDataFastEvalString
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -295,7 +302,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsContentTypeEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetContentTypeFastEvalNoResult
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -307,7 +314,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsContentEncodingEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetContentEncodingFastEvalNoResult
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -323,7 +330,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetHeaderEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetHeaderFastEvalNoResult
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -339,7 +346,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetContentTextEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetContentTextFastEvalNoResult
             Visibility = cvProtected
             Kind = mkClassProcedure
           end
@@ -351,7 +358,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'JSONVariant'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetContentJSONEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetContentJSONFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -360,8 +367,14 @@ object dwsWebLib: TdwsWebLib
               item
                 Name = 'fileName'
                 DataType = 'String'
+              end
+              item
+                Name = 'contentType'
+                DataType = 'String'
+                HasDefaultValue = True
+                DefaultValue = ''
               end>
-            OnEval = dwsWebClassesWebResponseMethodsSetContentFileEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetContentFileFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -372,7 +385,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'WebAuthentication'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsRequestAuthenticationEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsRequestAuthenticationFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -394,7 +407,7 @@ object dwsWebLib: TdwsWebLib
               end>
             Overloaded = True
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetCookieEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetCookie_StringStringFloat_FastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -436,7 +449,7 @@ object dwsWebLib: TdwsWebLib
               end>
             Overloaded = True
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetCookie2Eval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetCookie_StringStringFloatStringStringIntegerWebCookieSameSite_FastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -447,7 +460,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'Boolean'
               end>
             Attributes = [maClassMethod, maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetCompressionEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetCompressionFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -458,7 +471,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'Float'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetLastModifiedEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetLastModifiedFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -469,7 +482,7 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'Boolean'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetStaticEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetStaticFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -483,7 +496,7 @@ object dwsWebLib: TdwsWebLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetContentEventStreamEval
+            OnFastEvalString = dwsWebClassesWebResponseMethodsSetContentEventStreamFastEvalString
             Kind = mkClassFunction
           end
           item
@@ -498,7 +511,29 @@ object dwsWebLib: TdwsWebLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsWebClassesWebResponseMethodsSetStatusPlainTextEval
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetStatusPlainTextFastEvalNoResult
+            Kind = mkClassProcedure
+          end
+          item
+            Name = 'SetETag'
+            Parameters = <
+              item
+                Name = 'v'
+                DataType = 'String'
+              end>
+            Attributes = [maStatic]
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetETagFastEvalNoResult
+            Kind = mkClassProcedure
+          end
+          item
+            Name = 'SetCacheControl'
+            Parameters = <
+              item
+                Name = 'v'
+                DataType = 'String'
+              end>
+            Attributes = [maStatic]
+            OnFastEvalNoResult = dwsWebClassesWebResponseMethodsSetCacheControlFastEvalNoResult
             Kind = mkClassProcedure
           end>
         Properties = <
@@ -556,6 +591,16 @@ object dwsWebLib: TdwsWebLib
             Name = 'Static'
             DataType = 'Boolean'
             WriteAccess = 'SetStatic'
+          end
+          item
+            Name = 'ETag'
+            DataType = 'String'
+            WriteAccess = 'SetETag'
+          end
+          item
+            Name = 'CacheControl'
+            DataType = 'String'
+            WriteAccess = 'SetCacheControl'
           end>
       end
       item
@@ -864,6 +909,21 @@ object dwsWebLib: TdwsWebLib
             Name = 'CurrentContentSize'
             ResultType = 'Integer'
             OnEval = dwsWebClassesHttpRequestMethodsCurrentContentSizeEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'ContentSubData'
+            Parameters = <
+              item
+                Name = 'offset'
+                DataType = 'Integer'
+              end
+              item
+                Name = 'length'
+                DataType = 'Integer'
+              end>
+            ResultType = 'String'
+            OnEval = dwsWebClassesHttpRequestMethodsContentSubDataEval
             Kind = mkFunction
           end>
         OnCleanUp = dwsWebClassesHttpRequestCleanUp

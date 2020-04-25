@@ -33,11 +33,13 @@ type
          sIntS, sIntF, sIntPoint, sIntPointF, sIntExp, sIntExp0, sIntExpF : TState;
          sBin, sBinF, sHex, sHexF : TState;
          sAssign0 : TState;
+         sPlus, sMinus, sTimes, sPipe : TState;
          sStringSingle, sStringSingleF : TState;
          sStringDouble, sStringDoubleF : TState;
          sStringIndentDouble, sStringIndentDoubleF : TState;
          sStringIndentSingle, sStringIndentSingleF : TState;
-         sGreaterF, sSmallerF, sEqualF, sDotDot, sQuestion : TState;
+         sGreaterF, sSmallerF, sEqualS, sEqualF, sDotDot, sQuestion : TState;
+         sExclamation : TState;
 
          FCurlyCommentTransition : TTransition;
          FDollarNamesTransition : TTransition;
@@ -65,11 +67,12 @@ const
       ttDOT, ttDOTDOT,
       ttPLUS, ttMINUS,
       ttTIMES, ttDIVIDE, ttPERCENT, ttCARET, ttAT, ttDOLLAR, ttTILDE,
-      ttEQ, ttNOTEQ, ttGTR, ttGTREQ, ttLESS, ttLESSEQ,
-      ttLESSLESS, ttGTRGTR, ttEQGTR,
+      ttEQ, ttNOT_EQ, ttGTR, ttGTR_EQ, ttLESS, ttLESS_EQ,
+      ttLESS_LESS, ttGTR_GTR, ttEQ_GTR, ttEQ_EQ,
       ttSEMI, ttCOMMA, ttCOLON,
       ttASSIGN, ttPLUS_ASSIGN, ttMINUS_ASSIGN, ttTIMES_ASSIGN, ttDIVIDE_ASSIGN,
       ttPERCENT_ASSIGN, ttCARET_ASSIGN, ttAT_ASSIGN, ttTILDE_ASSIGN,
+      ttPLUS_PLUS, ttMINUS_MINUS,
       ttBLEFT, ttBRIGHT, ttALEFT, ttARIGHT, ttCRIGHT
    ];
 
@@ -159,11 +162,17 @@ begin
    sStringIndentDouble:=CreateState;
    sStringIndentDoubleF:=CreateState;
    sAssign0:=CreateState;
+   sPlus:=CreateState;
+   sMinus:=CreateState;
+   sTimes:=CreateState;
+   sPipe:=CreateState;
    sGreaterF:=CreateState;
    sSmallerF:=CreateState;
+   sEqualS:=CreateState;
    sEqualF:=CreateState;
    sDotDot:=CreateState;
    sQuestion:=CreateState;
+   sExclamation := CreateState;
 
    sStart.AddTransition(cSPACE, TSeekTransition.Create(sStart, [], caNone));
    sStart.AddTransition(cNAM, TConsumeTransition.Create(sNameF, [toStart], caNone));
@@ -172,10 +181,17 @@ begin
    sStart.AddTransition([''''], TSeekTransition.Create(sStringSingle, [toStart], caNone));
    sStart.AddTransition(['"'], TSeekTransition.Create(sStringDouble, [toStart], caNone));
    sStart.AddTransition(['#'], TSeekTransition.Create(sChar0, [toStart], caNone));
-   sStart.AddTransition([':', '+', '-', '*', '@', '%', '^', '|', '~'], TConsumeTransition.Create(sAssign0, [toStart], caNone));
-   sStart.AddTransition(['='], TConsumeTransition.Create(sEqualF, [toStart], caNone));
-   sStart.AddTransition(cSPEC-['(', '?'], TConsumeTransition.Create(sStart, [toStart, toFinal], caName));
+
+   sStart.AddTransition([':', '@', '%', '^', '~'], TConsumeTransition.Create(sAssign0, [toStart], caNone));
+   sStart.AddTransition(['+'], TConsumeTransition.Create(sPlus, [toStart], caNone));
+   sStart.AddTransition(['-'], TConsumeTransition.Create(sMinus, [toStart], caNone));
+   sStart.AddTransition(['*'], TConsumeTransition.Create(sTimes, [toStart], caNone));
+   sStart.AddTransition(['|'], TConsumeTransition.Create(sPipe, [toStart], caNone));
+   sStart.AddTransition(['='], TConsumeTransition.Create(sEqualS, [toStart], caNone));
+
+   sStart.AddTransition(cSPEC-['(', '?', '!'], TConsumeTransition.Create(sStart, [toStart, toFinal], caName));
    sStart.AddTransition(['?'], TConsumeTransition.Create(sQuestion, [toStart], caNone));
+   sStart.AddTransition(['!'], TConsumeTransition.Create(sExclamation, [toStart], caNone));
    sStart.AddTransition(['('], TConsumeTransition.Create(sBracketLeft, [toStart], caNone));
    sStart.AddTransition(['/'], TConsumeTransition.Create(sSlashComment0, [toStart], caNone));
    sStart.AddTransition(['<'], TConsumeTransition.Create(sSmallerF, [toStart], caNone));
@@ -346,9 +362,25 @@ begin
    sStringIndentDoubleF.AddTransition(cSTOP, TCheckTransition.Create(sStart, [toFinal], caMultiLineString));
    sStringIndentDoubleF.SetElse(TErrorTransition.Create(TOK_InvalidChar));
 
-   sAssign0.AddTransition(['=', '|'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sAssign0.AddTransition(['='], TConsumeTransition.Create(sStart, [toFinal], caName));
    sAssign0.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
    sAssign0.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
+
+   sPlus.AddTransition(['=', '+'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sPlus.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sPlus.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
+
+   sMinus.AddTransition(['=', '-'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sMinus.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sMinus.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
+
+   sTimes.AddTransition(['=', '*'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sTimes.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sTimes.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
+
+   sPipe.AddTransition(['=', '|'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sPipe.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sPipe.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
 
    sGreaterF.AddTransition(['='], TConsumeTransition.Create(sStart, [toFinal], caName));
    sGreaterF.AddTransition(['>'], TConsumeTransition.Create(sStart, [toFinal], caName));
@@ -361,9 +393,18 @@ begin
    sSmallerF.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
    sSmallerF.SetElse(TErrorTransition.Create(TOK_GreaterEqualityExpected));
 
-   sEqualF.AddTransition(['>'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sEqualS.AddTransition(['='], TConsumeTransition.Create(sEqualF, [], caNone));
+   sEqualS.AddTransition(['>'], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sEqualS.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sEqualS.SetElse(TErrorTransition.Create(TOK_GreaterEqualityExpected));
+
+   sEqualF.AddTransition(['='], TConsumeTransition.Create(sStart, [toFinal], caName));
    sEqualF.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
-   sEqualF.SetElse(TErrorTransition.Create(TOK_GreaterThanExpected));
+   sEqualF.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
+
+   sExclamation.AddTransition(['='], TConsumeTransition.Create(sStart, [toFinal], caName));
+   sExclamation.AddTransition(cStart + cSTOP, TCheckTransition.Create(sStart, [toFinal], caName));
+   sExclamation.SetElse(TErrorTransition.Create(TOK_EqualityExpected));
 
    sDotDot.AddTransition(['.'], TConsumeTransition.Create(sStart, [toFinal], caDotDot));
    sDotDot.SetElse(TCheckTransition.Create(sStart, [toFinal], caName));

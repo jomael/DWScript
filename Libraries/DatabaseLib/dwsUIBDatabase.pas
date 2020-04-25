@@ -91,7 +91,7 @@ type
          constructor Create(dataSet : TdwsUIBDataSet; fieldIndex : Integer);
 
          function IsNull : Boolean; override;
-         function AsString : String; override;
+         procedure AsString(var Result : String); override;
          function AsInteger : Int64; override;
          function AsFloat : Double; override;
          function AsBoolean : Boolean; override;
@@ -358,8 +358,11 @@ end;
 // GetName
 //
 function TdwsUIBDataField.GetName : String;
+var
+   fields : TSQLResult;
 begin
-   Result:=TdwsUIBDataSet(DataSet).FQuery.Fields.SqlName[Index];
+   fields := TdwsUIBDataSet(DataSet).FQuery.Fields;
+   Result := fields.AliasName[Index];
 end;
 
 // GetDataType
@@ -401,7 +404,7 @@ end;
 
 // AsString
 //
-function TdwsUIBDataField.AsString : String;
+procedure TdwsUIBDataField.AsString(var Result : String);
 begin
    Result:=TdwsUIBDataSet(DataSet).FQuery.Fields.AsString[Index];
 end;

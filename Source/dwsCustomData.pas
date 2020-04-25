@@ -41,11 +41,13 @@ type
 
          function AddClonedState(const item : TdwsCustomState) : TSimpleHashAction;
 
-         function GetState(const index : TGUID) : Variant;
+         function GetState(const index : TGUID) : Variant; inline;
          procedure SetState(const index : TGUID; const v : Variant);
 
       public
          property States[const index : TGUID] : Variant read GetState write SetState; default;
+
+         procedure VariantState(const index : TGUID; var result : Variant);
 
          function IntegerStateDef(const index : TGUID; const default : Integer) : Integer;
          function StringStateDef(const index : TGUID; const default : String) : String;
@@ -80,12 +82,11 @@ implementation
 
 // GUIDToHash
 //
-function GUIDToHash(const guid : TGUID) : Integer; inline;
-var
-   p : PIntegerArray;
+function GUIDToHash(const guid : TGUID) : Cardinal; inline;
+type
+   TCardinal4 = array [0..3] of Cardinal;
 begin
-   p := PIntegerArray(@guid);
-   Result := p[0] xor p[1] xor p[2] xor p[3];
+   Result := TCardinal4(guid)[0] xor TCardinal4(guid)[1] xor TCardinal4(guid)[2] xor TCardinal4(guid)[3];
 end;
 
 // ------------------
@@ -109,13 +110,8 @@ end;
 // GetState
 //
 function TdwsCustomStates.GetState(const index : TGUID) : Variant;
-var
-   s : TdwsCustomState;
 begin
-   s.Key:=index;
-   if Match(s) then
-      VarCopySafe(Result, s.Value)
-   else VarClearSafe(Result);
+   VariantState(index, Result);
 end;
 
 // SetState
@@ -127,6 +123,18 @@ begin
    s.Key:=index;
    s.Value:=v;
    Replace(s);
+end;
+
+// VariantState
+//
+procedure TdwsCustomStates.VariantState(const index : TGUID; var result : Variant);
+var
+   s : TdwsCustomState;
+begin
+   s.Key := index;
+   if Match(s) then
+      VarCopySafe(result, s.Value)
+   else VarClearSafe(result);
 end;
 
 // IntegerStateDef

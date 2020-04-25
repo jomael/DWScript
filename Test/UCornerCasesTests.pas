@@ -108,6 +108,9 @@ type
          procedure MessagesEnumerator;
          procedure UnitNameTest;
          procedure ExceptionWithinMagic;
+         procedure DiscardEmptyElse;
+
+         procedure DelphiDialectProcedureTypes;
 
          procedure LambdaAsConstParam;
 
@@ -1618,27 +1621,27 @@ var
    prog : IdwsProgram;
    sym : TSymbol;
 begin
-   prog:=FCompiler.Compile( 'var a external "alpha" : String;'#13#10
-                           +'var b external ''123'', c : Integer;'#13#10
-                           +'var d external := False;'#13#10
-                           +'procedure Test; begin var e external "gamma" : Float; end;');
+   prog:=FCompiler.Compile(  'var a external "alpha" : String;'#13#10
+                           + 'var b external ''123'', c : Integer;'#13#10
+                           + 'var d external := False;'#13#10
+                           + 'procedure Test; begin var e external "gamma" : Float; end;');
 
-   CheckEquals( 'Syntax Error: String expected [line: 3, column: 16]'#13#10
-               +'Syntax Error: External variables must be global [line: 4, column: 29]'#13#10,
+   CheckEquals(  'Syntax Error: String expected [line: 3, column: 16]'#13#10
+               + 'Syntax Error: External variables must be global [line: 4, column: 29]'#13#10,
                prog.Msgs.AsInfo);
 
    sym:=prog.Table.FindSymbol('a', cvMagic);
-   CheckEquals(TDataSymbol.ClassName, sym.ClassType.ClassName, 'a');
+   CheckEquals(TVarDataSymbol.ClassName, sym.ClassType.ClassName, 'a');
    CheckTrue(TDataSymbol(sym).HasExternalName, 'a');
    CheckEquals('alpha', TDataSymbol(sym).ExternalName, 'a');
 
    sym:=prog.Table.FindSymbol('b', cvMagic);
-   CheckEquals(TDataSymbol.ClassName, sym.ClassType.ClassName, 'b');
+   CheckEquals(TVarDataSymbol.ClassName, sym.ClassType.ClassName, 'b');
    Check(TDataSymbol(sym).HasExternalName, 'b');
    CheckEquals('123', TDataSymbol(sym).ExternalName, 'b');
 
    sym:=prog.Table.FindSymbol('c', cvMagic);
-   CheckEquals(TDataSymbol.ClassName, sym.ClassType.ClassName, 'c');
+   CheckEquals(TVarDataSymbol.ClassName, sym.ClassType.ClassName, 'c');
    CheckFalse(TDataSymbol(sym).HasExternalName, 'c');
    CheckEquals('c', TDataSymbol(sym).ExternalName, 'c');
 end;
@@ -2098,6 +2101,53 @@ begin
                + 'Test [line: 2, column: 31]'#13#10
                + ' [line: 3, column: 9]'#13#10,
                prog.Execute.Msgs.AsInfo);
+end;
+
+// DiscardEmptyElse
+//
+procedure TCornerCasesTests.DiscardEmptyElse;
+var
+   prog : IdwsProgram;
+   e : TExprBase;
+begin
+   prog := FCompiler.Compile('procedure Test(a : Boolean); begin if a then Print(a) else ; end;');
+   e := prog.Table.FindSymbol('Test', cvMagic).AsFuncSymbol.SubExpr[1];
+   CheckEquals('TIfThenExpr', e.ClassName, 'empty else');
+
+   prog := FCompiler.Compile('procedure Test(a : Boolean); begin if a then Print(a) else Print(a); end;');
+   e := prog.Table.FindSymbol('Test', cvMagic).AsFuncSymbol.SubExpr[1];
+   CheckEquals('TIfThenElseExpr', e.ClassName);
+
+   prog := FCompiler.Compile('procedure Test(a : Boolean); begin if a then else Print(a); end;');
+   e := prog.Table.FindSymbol('Test', cvMagic).AsFuncSymbol.SubExpr[1];
+   CheckEquals('TIfThenExpr', e.ClassName, 'empty then');
+end;
+
+// DelphiDialectProcedureTypes
+//
+procedure TCornerCasesTests.DelphiDialectProcedureTypes;
+var
+   opts : TCompilerOptions;
+   prog : IdwsProgram;
+begin
+   opts := FCompiler.Config.CompilerOptions;
+   try
+      FCompiler.Config.HintsLevel := hlPedantic;
+
+      FCompiler.Config.CompilerOptions := opts + [coDelphiDialect];
+      prog := FCompiler.Compile( 'type TProc = reference to procedure;'#13#10
+                                +'type TMethod = procedure of object;' );
+      CheckEquals(0, prog.Msgs.Count, prog.Msgs.AsInfo);
+
+      FCompiler.Config.CompilerOptions := opts - [coDelphiDialect];
+      prog := FCompiler.Compile( 'type TProc = reference to procedure;'#13#10
+                                +'type TMethod = procedure of object;' );
+      CheckEquals(2, prog.Msgs.Count, prog.Msgs.AsInfo);
+
+   finally
+      FCompiler.Config.HintsLevel := hlNormal;
+      FCompiler.Config.CompilerOptions := opts;
+   end;
 end;
 
 // LambdaAsConstParam

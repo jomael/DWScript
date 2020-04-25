@@ -23,7 +23,8 @@ interface
 
 uses
    Classes, SysUtils, Types, StrUtils, Masks, Variants,
-   dwsStrings, dwsXPlatform, Math, dwsXXHash;
+   {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
+   dwsXPlatform, Math, dwsXXHash;
 
 type
 
@@ -32,6 +33,11 @@ type
 
    TInt64Array = array [0..High(MaxInt) shr 4] of Int64;
    PInt64Array = ^TInt64Array;
+
+   TInt64DynArrayHelper = record helper for TInt64DynArray
+      function High : Integer; inline;
+      function Length : Integer; inline;
+   end;
 
    // TRefCountedObject
    //
@@ -129,10 +135,15 @@ type
       function IsDefined : Boolean;
    end;
 
-   INumeric = interface
+   IToNumeric = interface
       ['{11C48916-A0E4-4D4E-B534-89020D9842A7}']
       function ToFloat : Double;
       function ToInteger : Int64;
+   end;
+
+   IToVariant = interface
+      ['{DE1A280D-5552-4F84-B557-957271D6EA62}']
+      procedure ToVariant(var result : Variant);
    end;
 
    // TVarRecArrayContainer
@@ -874,12 +885,6 @@ type
 
    EStringIterator = class (Exception) end;
 
-   EdwsVariantTypeCastError = class(EVariantTypeCastError)
-      public
-         constructor Create(const v : Variant; const desiredType : String;
-                            originalException : Exception);
-   end;
-
    PFormatSettings = ^TFormatSettings;
 
    TPooledObject = class
@@ -912,6 +917,10 @@ type
          property Capacity : Integer read FCapacity write FCapacity;
    end;
 
+   TStringDynArrayHelper = record helper for TStringDynArray
+      function Join(const separator : String) : String;
+   end;
+
 const
    cMSecToDateTime : Double = 1/(24*3600*1000);
 
@@ -936,8 +945,8 @@ function UnicodeSameText(const s1, s2 : String) : Boolean; overload;
 {$endif}
 
 function AsciiCompareLen(p1, p2 : PAnsiChar; n : Integer) : Integer; overload;
-function AsciiCompareText(p : PAnsiChar; const s : RawByteString) : Integer;
-function AsciiSameText(p : PAnsiChar; const s : RawByteString) : Boolean;
+function AsciiCompareText(p : PAnsiChar; const s : RawByteString) : Integer; deprecated;
+function AsciiSameText(p : PAnsiChar; const s : RawByteString) : Boolean; deprecated;
 
 function PosA(const sub, main : RawByteString) : Integer; inline;
 
@@ -956,6 +965,8 @@ function StrEndsWithA(const aStr, aEnd : RawByteString) : Boolean;
 function StrContains(const aStr, aSubStr : String) : Boolean; overload;
 function StrContains(const aStr : String; aChar : Char) : Boolean; overload;
 function StrIndexOfChar(const aStr : String; aChar : Char) : Integer;
+function StrIndexOfCharA(const aStr : RawByteString; aChar : AnsiChar) : Integer;
+function StrLastIndexOfCharA(const aStr : RawByteString; aChar : AnsiChar) : Integer;
 function LowerCaseA(const aStr : RawByteString) : RawByteString;
 
 function StrMatches(const aStr, aMask : String) : Boolean;
@@ -967,10 +978,10 @@ function StrAfterChar(const aStr : String; aChar : Char) : String;
 function StrBeforeChar(const aStr : String; aChar : Char) : String;
 
 function StrReplaceChar(const aStr : String; oldChar, newChar : Char) : String;
+function StrReplaceMacros(const aStr : String; const macros : array of String;
+                          const startDelimiter, stopDelimiter : String) : String;
 
 function StrCountChar(const aStr : String; c : Char) : Integer;
-
-function Min(a, b : Integer) : Integer; inline;
 
 function WhichPowerOfTwo(const v : Int64) : Integer;
 
@@ -979,6 +990,7 @@ function SimpleStringHash(const s : String) : Cardinal; overload;
 function SimpleStringHash(p : PAnsiChar; sizeInChars : Integer) : Cardinal; overload;
 {$endif}
 function SimpleStringHash(const s : UnicodeString) : Cardinal; overload; inline;
+function SimpleStringHash(const s : RawByteString) : Cardinal; overload; inline;
 function SimpleStringHash(p : PWideChar; sizeInChars : Integer) : Cardinal; overload; inline;
 function SimpleByteHash(p : PByte; n : Integer) : Cardinal;
 
@@ -988,9 +1000,11 @@ function SimpleInt64Hash(x : Int64) : Cardinal;
 
 function RawByteStringToScriptString(const s : RawByteString) : UnicodeString; overload; inline;
 procedure RawByteStringToScriptString(const s : RawByteString; var result : UnicodeString); inline; overload;
-procedure BytesToScriptString(const p : PByte; n : Integer; var result : UnicodeString);
+procedure RawByteStringToScriptString(const s : RawByteString; var result : Variant); overload;
+
 function ScriptStringToRawByteString(const s : UnicodeString) : RawByteString; overload; inline;
 procedure ScriptStringToRawByteString(const s : UnicodeString; var result : RawByteString); overload;
+
 procedure WordsToBytes(src : PWord; dest : PByte; nbWords : Integer);
 
 procedure StringBytesToWords(var buf : UnicodeString; swap : Boolean);
@@ -1000,7 +1014,8 @@ type
    EHexEncodingException = class (Exception)
    end;
 
-function BinToHex(const data; n : Integer) : UnicodeString; overload;
+function BinToHex(data : Pointer; n : Integer) : UnicodeString; overload;
+function BinToHex(const data; n : Integer) : UnicodeString; overload; inline;
 function BinToHex(const data : RawByteString) : UnicodeString; overload; inline;
 
 function HexToBin(const data : String) : RawByteString; overload;
@@ -1015,6 +1030,8 @@ function FastInt64ToBuffer(const val : Int64; var buf : TInt64StringBuffer) : In
 procedure FastInt64ToStr(const val : Int64; var s : String); overload;
 function  FastInt64ToStr(const val : Int64) : String; overload; inline;
 procedure FastInt64ToHex(val : Int64; digits : Integer; var s : String);
+
+procedure FastFloatToStr(const val : Extended; var s : String; const fmtSettings : TFormatSettings);
 
 function  Int32ToStrU(val : Integer) : UnicodeString;
 function  StrUToInt64(const s : UnicodeString; const default : Int64) : Int64;
@@ -1064,8 +1081,11 @@ procedure VarCopySafe(var dest : Variant; const src : UnicodeString); overload;
 procedure VarCopySafe(var dest : Variant; const src : Double); overload;
 procedure VarCopySafe(var dest : Variant; const src : Boolean); overload;
 
+function VarCompareSafe(const left, right : Variant) : TVariantRelationship;
+
 procedure VarSetNull(var v : Variant); inline;
 procedure VarSetDefaultInt64(var dest : Variant); inline;
+procedure VarSetDefaultDouble(var dest : Variant); inline;
 procedure VarSetDefaultString(var dest : Variant); inline;
 procedure VarSetDateTime(var dest : Variant; const dt : Double);
 
@@ -1089,6 +1109,10 @@ function ApplyStringVariables(const str : TFilename; const variables : TStrings;
                               const delimiter : String = '%') : TFilename;
 
 function ScanMemory(p : Pointer; size : IntPtr; const pattern : TBytes) : Pointer;
+
+function PopCount32(v : Int32) : Integer;
+function PopCount64(p : PInt64; nbInt64s : Integer) : Integer;
+function PopCount(p : PByte; n : Integer) : Integer;
 
 type
    TTwoChars = packed array [0..1] of Char;
@@ -1114,6 +1138,9 @@ implementation
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
+
+uses
+  SyncObjs;
 
 // CoalesceableIsFalsey
 //
@@ -1163,6 +1190,13 @@ end;
 function SimpleStringHash(const s : UnicodeString) : Cardinal;
 begin
    Result := xxHash32.Full(Pointer(s), Length(s)*SizeOf(WideChar));
+end;
+
+// SimpleStringHash
+//
+function SimpleStringHash(const s : RawByteString) : Cardinal;
+begin
+   Result := xxHash32.Full(Pointer(s), Length(s)*SizeOf(AnsiChar));
 end;
 
 // SimpleStringHash
@@ -1299,7 +1333,7 @@ end;
 
 // BinToHex
 //
-function BinToHex(const data; n : Integer) : UnicodeString;
+function BinToHex(data : Pointer; n : Integer) : UnicodeString;
 const
    cHexDigits : array [0..15] of Char = (
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -1315,12 +1349,19 @@ begin
    SetLength(Result, n*2);
 
    pDest:=Pointer(Result);
-   p:=@data;
+   p := data;
    for i:=1 to n do begin
       pDest^ := Ord(cHexDigits[p^ shr 4]) + (Ord(cHexDigits[p^ and 15]) shl 16);
       Inc(pDest);
       Inc(p);
    end;
+end;
+
+// BinToHex
+//
+function BinToHex(const data; n : Integer) : UnicodeString;
+begin
+   Result := BinToHex(@data, n);
 end;
 
 // BinToHex
@@ -1641,6 +1682,25 @@ begin
       Dec(p);
    end;
    SetString(s, PChar(@p[1]), (NativeUInt(@buf[15])-NativeUInt(p)) div SizeOf(Char));
+end;
+
+// FastFloatToStr
+//
+procedure FastFloatToStr(const val : Extended; var s : String; const fmtSettings : TFormatSettings);
+var
+   buffer : array [0..63] of Char;
+   n : Integer;
+begin
+   if val = 0 then
+      s := '0'
+   else begin
+      {$IFDEF FPC}
+      n := FloatToText(buffer, val, ffGeneral, 15, 0, fmtSettings);
+      {$ELSE}
+      n := FloatToText(buffer, val, fvExtended, ffGeneral, 15, 0, fmtSettings);
+      {$ENDIF}
+      SetString(s, buffer, n);
+   end;
 end;
 
 // Int64ToHex
@@ -2041,7 +2101,7 @@ procedure VariantToString(const v : Variant; var s : String);
 var
    varData : PVarData;
 begin
-   varData:=PVarData(@v);
+   varData := PVarData(@v);
    case varData^.VType of
       {$ifdef FPC}
       varString :
@@ -2067,7 +2127,7 @@ begin
       varError :
          s := '[varError]';
    else
-      s:=v;
+      s := v;
    end;
 end;
 
@@ -2100,13 +2160,20 @@ procedure VariantToInt64(const v : Variant; var r : Int64);
 
    procedure UnknownAsInteger(const unknown : IUnknown; var r : Int64);
    var
-      intf : INumeric;
+      intf : IToNumeric;
    begin
       if unknown = nil then
          r := 0
-      else if unknown.QueryInterface(INumeric, intf)=0 then
+      else if unknown.QueryInterface(IToNumeric, intf)=0 then
          r := intf.ToInteger
-      else raise EVariantTypeCastError.CreateFmt(CPE_AssignIncompatibleTypes, ['[IUnknown]', SYS_INTEGER]);
+      else raise EVariantTypeCastError.CreateFmt(RTE_VariantCastFailed, [ 'IUnknown', SYS_INTEGER ]);
+   end;
+
+   procedure StringToInt64(const s : String; var r : Int64);
+   begin
+      if not TryStrToInt64(s, r) then begin
+         raise EVariantTypeCastError.CreateFmt(RTE_VariantCastFailed, [ SYS_STRING, SYS_INTEGER ]);
+      end;
    end;
 
    procedure DefaultCast(const v : Variant; var r : Int64);
@@ -2117,7 +2184,10 @@ procedure VariantToInt64(const v : Variant; var r : Int64);
          // workaround for RTL bug that will sometimes report a failed cast to Int64
          // as being a failed cast to Boolean
          on E : EVariantError do begin
-            raise EdwsVariantTypeCastError.Create(v, 'Integer', E);
+            raise EVariantTypeCastError.CreateFmt(
+               RTE_VariantVTCastFailed,
+               [ VarType(v), SYS_INTEGER ]
+            );
          end else raise;
       end;
    end;
@@ -2130,6 +2200,8 @@ begin
          r := Ord(Boolean(TVarData(v).VBoolean));
       varUnknown :
          UnknownAsInteger(IUnknown(TVarData(v).VUnknown), r);
+      varUString :
+         StringToInt64(String(TVarData(v).VString), r);
       varNull :
          r := 0;
    else
@@ -2177,13 +2249,13 @@ function VariantToFloat(const v : Variant) : Double;
 
    procedure UnknownAsFloat(const unknown : IUnknown; var Result : Double);
    var
-      intf : INumeric;
+      intf : IToNumeric;
    begin
       if unknown = nil then
          Result := 0
-      else if unknown.QueryInterface(INumeric, intf)=0 then
+      else if unknown.QueryInterface(IToNumeric, intf)=0 then
          Result := intf.ToFloat
-      else raise EVariantTypeCastError.CreateFmt(CPE_AssignIncompatibleTypes, ['[IUnknown]', SYS_FLOAT]);
+      else raise EVariantTypeCastError.CreateFmt(RTE_VariantCastFailed, [ 'IUnknown', SYS_FLOAT]);
    end;
 
 begin
@@ -2198,9 +2270,11 @@ begin
          Result := 0;
       varUnknown :
          UnknownAsFloat(IUnknown(TVarData(v).VUnknown), Result);
+{$IFNDEF FPC}
       varUString :
          if not TryStrToDouble(PChar(TVarData(v).VUString), Result) then
             raise EConvertError.CreateFmt(CPE_InvalidFloatFormat, [ String(TVarData(v).VUString) ]);
+{$ENDIF}
    else
       Result := v;
    end;
@@ -2278,6 +2352,10 @@ begin
          TVarData(v).VType:=varEmpty;
          AnsiString(TVarData(v).VString):='';
       end;
+      varRecord : begin
+         TVarData(v).VType := varEmpty;
+         TVarData(v).VInt64 := 0;
+      end;
    else
       VarClear(v);
       TVarData(v).VInt64:=0;
@@ -2338,6 +2416,57 @@ begin
    else
       dest:=src;
    end;
+end;
+
+// VarCompareSafe
+//
+function VarCompareSafe(const left, right : Variant) : TVariantRelationship;
+
+   function CompareUnknowns(const left, right : IUnknown) : TVariantRelationship;
+   var
+      intfLeft, intfRight : IToVariant;
+      varLeft, varRight : Variant;
+   begin
+      if left = right then
+         Result := vrEqual
+      else if     (left <> nil)  and (right <> nil)
+              and (left.QueryInterface(IToVariant, intfLeft)=0) and (right.QueryInterface(IToVariant, intfRight)=0) then begin
+         intfLeft.ToVariant(varLeft);
+         intfRight.ToVariant(varRight);
+         Result := VarCompareSafe(varLeft, varRight);
+      end else Result := vrNotEqual;
+   end;
+
+   function CompareUnknownToVar(const left : IUnknown; const right : Variant) : TVariantRelationship;
+   var
+      intfLeft : IToVariant;
+      varLeft : Variant;
+   begin
+      if (left <> nil) and (left.QueryInterface(IToVariant, intfLeft)=0) then begin
+         intfLeft.ToVariant(varLeft);
+         Result := VarCompareSafe(varLeft, right);
+      end else Result := vrNotEqual;
+   end;
+
+   function CompareVarToUnknown(const left : Variant; const right : IUnknown) : TVariantRelationship;
+   var
+      intfRight : IToVariant;
+      varRight : Variant;
+   begin
+      if (right <> nil) and (right.QueryInterface(IToVariant, intfRight)=0) then begin
+         intfRight.ToVariant(varRight);
+         Result := VarCompareSafe(left, varRight);
+      end else Result := vrNotEqual;
+   end;
+
+begin
+   if VarType(left) = varUnknown then
+      if VarType(right) = varUnknown then
+         Result := CompareUnknowns(IUnknown(TVarData(left).VUnknown), IUnknown(TVarData(right).VUnknown))
+      else Result := CompareUnknownToVar(IUnknown(TVarData(left).VUnknown), right)
+   else if VarType(right) = varUnknown then
+      Result := CompareVarToUnknown(left, IUnknown(TVarData(right).VUnknown))
+   else Result := VarCompareValue(left, right);
 end;
 
 // VarSetNull
@@ -2430,6 +2559,16 @@ begin
 
    TVarData(dest).VType := varInt64;
    TVarData(dest).VInt64 := 0;
+end;
+
+// VarSetDefaultDouble
+//
+procedure VarSetDefaultDouble(var dest : Variant); inline;
+begin
+   VarClearSafe(dest);
+
+   TVarData(dest).VType := varDouble;
+   TVarData(dest).VDouble := 0;
 end;
 
 // VarSetDefaultString
@@ -2637,18 +2776,24 @@ var
 
    function Read2Digits : Integer; inline;
    begin
-      Result:=ReadDigit*10;
-      Result:=Result+ReadDigit;
+      Result := ReadDigit*10;
+      Result := Result + ReadDigit;
+   end;
+
+   function Read3Digits : Integer; inline;
+   begin
+      Result := Read2Digits*10;
+      Result := Result + ReadDigit;
    end;
 
    function Read4Digits : Integer; inline;
    begin
-      Result:=Read2Digits*100;
-      Result:=Result+Read2Digits;
+      Result := Read2Digits*100;
+      Result := Result + Read2Digits;
    end;
 
 var
-   y, m, d, h, n, s : Integer;
+   y, m, d, h, n, s, z : Integer;
    separator : Boolean;
 begin
    dt := 0;
@@ -2695,13 +2840,18 @@ begin
             Inc(p);
          end else if (p^ = ':') then
             raise EISO8601Exception.Create('Unexpected ":" after minutes');
-         s:=Read2Digits;
+         s := Read2Digits;
+         if p^ = '.' then begin
+            Inc(p);
+            z := Read3Digits;
+         end else z := 0;
       end;
    else
       s := 0;
+      z := 0;
    end;
 
-   dt := dt + EncodeTime(h, n, s, 0);
+   dt := dt + EncodeTime(h, n, s, z);
 
    case p^ of
       #0 : exit;
@@ -2790,36 +2940,25 @@ end;
 //
 procedure RawByteStringToScriptString(const s : RawByteString; var result : UnicodeString); overload;
 begin
-   if s='' then begin
-      result:='';
-      exit;
-   end;
-   BytesToScriptString(Pointer(s), Length(s), result)
+   if s = '' then
+      result := ''
+   else BytesToScriptString(Pointer(s), Length(s), result)
 end;
 
-// BytesToScriptString
+// RawByteStringToScriptString
 //
-procedure BytesToScriptString(const p : PByte; n : Integer; var result : UnicodeString);
-var
-   pSrc : PByteArray;
-   pDest : PWordArray;
+procedure RawByteStringToScriptString(const s : RawByteString; var result : Variant); overload;
 begin
-   SetLength(result, n);
-   pSrc := PByteArray(p);
-   pDest := PWordArray(Pointer(result));
-   while n >= 4 do begin
-      Dec(n, 4);
-      pDest[0] := pSrc[0];
-      pDest[1] := pSrc[1];
-      pDest[2] := pSrc[2];
-      pDest[3] := pSrc[3];
-      pDest := @pDest[4];
-      pSrc := @pSrc[4];
-   end;
-   for n := 1 to n do begin
-      pDest[0] := pSrc[0];
-      pDest := @pDest[1];
-      pSrc := @pSrc[1];
+   if s = '' then
+      VarSetDefaultString(result)
+   else begin
+      VarClearSafe(result);
+      {$ifdef FPC}
+      TVarData(result).VType := varString;
+      {$else}
+      TVarData(result).VType := varUString;
+      {$endif}
+      RawByteStringToScriptString(s, UnicodeString(TVarData(result).VString));
    end;
 end;
 
@@ -2866,13 +3005,31 @@ begin
    end;
 end;
 
-var
-   vUnifiedStrings : array [0..1] of Pointer;
-   vUnifiedCharacters : array [0..Ord(TStringUnifier.HighestUnifiedChar)] of String;
+// ------------------
+// ------------------ TInt64DynArrayHelper ------------------
+// ------------------
+
+// High
+//
+function TInt64DynArrayHelper.High : Integer;
+begin
+   Result := System.High(Self);
+end;
+
+// Length
+//
+function TInt64DynArrayHelper.Length : Integer;
+begin
+   Result := System.Length(Self);
+end;
 
 // ------------------
 // ------------------ TStringUnifier ------------------
 // ------------------
+
+var
+   vUnifiedStrings : array [0..1] of Pointer;
+   vUnifiedCharacters : array [0..Ord(TStringUnifier.HighestUnifiedChar)] of String;
 
 // Create
 //
@@ -3427,6 +3584,28 @@ begin
    Result := 0;
 end;
 
+// StrIndexOfCharA
+//
+function StrIndexOfCharA(const aStr : RawByteString; aChar : AnsiChar) : Integer;
+var
+   i : Integer;
+begin
+   for i:=1 to Length(aStr) do
+      if aStr[i] = aChar then Exit(i);
+   Result := 0;
+end;
+
+// StrLastIndexOfCharA
+//
+function StrLastIndexOfCharA(const aStr : RawByteString; aChar : AnsiChar) : Integer;
+var
+   i : Integer;
+begin
+   for i := Length(aStr) downto 1 do
+      if aStr[i] = aChar then Exit(i);
+   Result := 0;
+end;
+
 // LowerCaseA
 //
 function LowerCaseA(const aStr : RawByteString) : RawByteString;
@@ -3515,6 +3694,66 @@ begin
          Result[i]:=newChar;
 end;
 
+// StrReplaceMacros
+//
+function StrReplaceMacros(const aStr : String; const macros : array of String;
+                          const startDelimiter, stopDelimiter : String) : String;
+var
+   macro : String;
+   p, start, startAfterDelimiter, stop, i : Integer;
+   wobs : TWriteOnlyBlockStream;
+   replaced : Boolean;
+begin
+   Assert(not Odd(Length(macros)));
+   if aStr = '' then Exit('');
+   if startDelimiter = '' then Exit('');
+   start := Pos(startDelimiter, aStr);
+   if start <= 0 then Exit(aStr);
+   p := 1;
+   wobs := TWriteOnlyBlockStream.Create;
+   try
+      while True do begin
+         startAfterDelimiter := start + Length(startDelimiter);
+         if stopDelimiter <> '' then
+            stop := Pos(stopDelimiter, aStr, startAfterDelimiter)
+         else stop := Pos(startDelimiter, aStr, startAfterDelimiter);
+         if stop <= 0 then begin
+            wobs.WriteSubString(aStr, p);
+            break;
+         end;
+         if start > p then
+            wobs.WriteSubString(aStr, p, start-p);
+         macro := Copy(aStr, startAfterDelimiter,  stop-startAfterDelimiter);
+         replaced := False;
+         for i := 0 to (Length(macros) div 2) - 1 do begin
+            if macro = macros[i*2] then begin
+               wobs.WriteString(macros[i*2+1]);
+               replaced := True;
+               Break;
+            end;
+         end;
+         if not replaced then begin
+            wobs.WriteString(startDelimiter);
+            wobs.WriteString(macro);
+            if stopDelimiter <> '' then
+               wobs.WriteString(stopDelimiter)
+            else wobs.WriteString(startDelimiter);
+         end;
+         if stopDelimiter <> '' then
+            p := stop + Length(stopDelimiter)
+         else p := stop + Length(startDelimiter);
+         start := Pos(startDelimiter, aStr, p);
+         if start <= 0 then begin
+            wobs.WriteSubString(aStr, p);
+            Break;
+         end;
+      end;
+      Result := wobs.ToString;
+   finally
+      wobs.Free;
+   end;
+end;
+
 // StrCountChar
 //
 function StrCountChar(const aStr : String; c : Char) : Integer;
@@ -3525,15 +3764,6 @@ begin
    for i:=1 to Length(aStr) do
       if aStr[i]=c then
          Inc(Result);
-end;
-
-// Min
-//
-function Min(a, b : Integer) : Integer;
-begin
-   if a<b then
-      Result:=a
-   else Result:=b;
 end;
 
 // WhichPowerOfTwo
@@ -6407,20 +6637,6 @@ begin
 end;
 
 // ------------------
-// ------------------ EdwsVariantTypeCastError ------------------
-// ------------------
-
-// Create
-//
-constructor EdwsVariantTypeCastError.Create(const v : Variant;
-      const desiredType : String; originalException : Exception);
-begin
-   inherited CreateFmt(RTE_VariantCastFailed,
-                       [VarTypeAsText(VarType(v)), desiredType, originalException.ClassName])
-
-end;
-
-// ------------------
 // ------------------ TStringIterator ------------------
 // ------------------
 
@@ -6544,8 +6760,11 @@ end;
 // GetItemHashCode
 //
 function TSimpleStringHash.GetItemHashCode(const item1 : String) : Cardinal;
+var
+   lc : String;
 begin
-   Result:=SimpleStringHash(UnicodeLowerCase(item1));
+   UnicodeLowerCase(item1, lc);
+   Result := SimpleStringHash(lc);
 end;
 
 // ------------------
@@ -6932,6 +7151,34 @@ begin
 end;
 
 // ------------------
+// ------------------ TStringDynArrayHelper ------------------
+// ------------------
+
+function TStringDynArrayHelper.Join(const separator : String) : String;
+var
+   i : Integer;
+   wobs : TWriteOnlyBlockStream;
+begin
+   case Length(Self) of
+      0 : Result := '';
+      1 : Result := Self[0];
+      2 : Result := Self[0] + separator + Self[1];
+   else
+      wobs := TWriteOnlyBlockStream.AllocFromPool;
+      try
+         wobs.WriteString(Self[0]);
+         for i := 1 to High(Self) do begin
+            wobs.WriteString(separator);
+            wobs.WriteString(Self[i]);
+         end;
+         Result := wobs.ToString;
+      finally
+         wobs.ReturnToPool;
+      end;
+   end;
+end;
+
+// ------------------
 // ------------------ TSimpleStringList ------------------
 // ------------------
 
@@ -7052,6 +7299,90 @@ begin
    Result := nil;
 end;
 
+{$ifdef DELPHI_XE2_PLUS}
+   {$if Defined(WIN32_ASM) or Defined(WIN64_ASM)}
+      {$define TEST_POPCNT}
+   {$ifend}
+{$endif}
+
+// PopCount32
+//
+function PopCount32_Pascal(v : Int32) : Integer;
+begin
+   v      := (v and $55555555) + ((v shr  1) and $55555555);
+   v      := (v and $33333333) + ((v shr  2) and $33333333);
+   v      := (v and $0f0f0f0f) + ((v shr  4) and $0f0f0f0f);
+   v      := (v and $00ff00ff) + ((v shr  8) and $00ff00ff);
+   Result := (v and $0000ffff) + ((v shr 16) and $0000ffff);
+end;
+{$ifdef WIN32_ASM}
+function PopCount32_asm(v : Int32) : Integer;
+asm
+   POPCNT    eax, v
+end;
+{$endif}
+var vPopCount32 : function(v : Int32) : Integer;
+function PopCount32(v : Int32) : Integer;
+begin
+   Result := vPopCount32(v);
+end;
+
+// PopCount64a
+//
+{$ifdef WIN64_ASM}
+function PopCount64_asm(p : PInt64; nbInt64s : Integer) : Integer;
+asm
+   xor   rax, rax
+   test  rdx, rdx
+   jz    @@done
+@@loop:
+   popcnt r8, qword ptr [rcx]
+   add   rax, r8
+   add   rcx, 8
+   dec   rdx
+   jnz   @@loop
+@@done:
+end;
+{$endif}
+function PopCount64_Pascal(p : PInt64; nbInt64s : Integer) : Integer;
+begin
+   Result := 0;
+   while nbInt64s > 0 do begin
+      Inc(Result, vPopCount32(PIntegerArray(p)[0]) + vPopCount32(PIntegerArray(p)[1]));
+      Dec(nbInt64s);
+      Inc(p);
+   end;
+end;
+var vPopCount64 : function(p : PInt64; nbInt64s : Integer) : Integer;
+function PopCount64(p : PInt64; nbInt64s : Integer) : Integer;
+begin
+   Result := vPopCount64(p, nbInt64s);
+end;
+
+// PopCount
+//
+function PopCount(p : PByte; n : Integer) : Integer;
+var
+   n64 : Integer;
+begin
+   n64 := n shr 3;
+   if n64 > 0 then begin
+      Result := vPopCount64(PInt64(p), n64);
+      Inc(p, n64*SizeOf(Int64));
+      n := n and 7;
+   end else Result := 0;
+   if n >= SizeOf(Int32) then begin
+      Inc(Result, PopCount32(PInteger(p)^));
+      Inc(p, SizeOf(Int32));
+      Dec(n, SizeOf(Int32));
+   end;
+   case n of
+      1 : Inc(Result, PopCount32(p^));
+      2 : Inc(Result, PopCount32(PWord(p)^));
+      3 : Inc(Result, PopCount32((PWord(p)^ shl 16) or p[2]));
+   end;
+end;
+
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
@@ -7064,6 +7395,19 @@ initialization
    InitializeStringsUnifier;
    TSimpleIntegerStack.vTemplate:=TSimpleIntegerStack.Create;
    TNameObjectHash.vHashSalt := Cardinal(GetSystemMilliseconds);
+
+   vPopCount32 := PopCount32_Pascal;
+   vPopCount64 := PopCount64_Pascal;
+   {$ifdef TEST_POPCNT}
+   if (System.TestSSE or sePOPCNT) <> 0 then begin
+      {$ifdef WIN32_ASM}
+      vPopCount32 := PopCount32_asm;
+      {$endif}
+      {$ifdef WIN64_ASM}
+      vPopCount64 := PopCount64_asm;
+      {$endif}
+   end;
+   {$endif}
 
 finalization
 

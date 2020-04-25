@@ -105,7 +105,7 @@ type
          function DataType : TdwsDataFieldType; override;
 
          function IsNull : Boolean; override;
-         function AsString : String; override;
+         procedure AsString(var Result : String); override;
          function AsInteger : Int64; override;
          function AsFloat : Double; override;
          function AsBlob : RawByteString; override;
@@ -135,6 +135,7 @@ uses dwsSynSQLiteFunctions;
 
 var
    vSQLite3DynamicMRSW : TMultiReadSingleWrite;
+   vFloatFormatSettings : TFormatSettings;
 
 procedure InitializeSQLite3Dynamic;
 
@@ -219,6 +220,8 @@ begin
       sqlite3.create_function(DB, 'BOOL_OR', 1, SQLITE_ANY or SQLITE_DETERMINISTIC, nil, nil, SQLiteFunc_BoolOrStep, SQLiteFunc_BoolFinal);
       sqlite3.create_function(DB, 'BIT_AND', 1, SQLITE_ANY or SQLITE_DETERMINISTIC, nil, nil, SQLiteFunc_BitAndStep, SQLiteFunc_BitFinal);
       sqlite3.create_function(DB, 'BIT_OR', 1, SQLITE_ANY or SQLITE_DETERMINISTIC, nil, nil, SQLiteFunc_BitOrStep, SQLiteFunc_BitFinal);
+      sqlite3.create_function(DB, 'BIT_POPCOUNT', 1, SQLITE_ANY or SQLITE_DETERMINISTIC, nil, SQLiteFunc_BitPopCount, nil, nil);
+      sqlite3.create_function(DB, 'HAMMING_DISTANCE', 2, SQLITE_ANY or SQLITE_DETERMINISTIC, nil, SQLiteFunc_HammingDistance, nil, nil);
    end;
 end;
 
@@ -516,7 +519,7 @@ end;
 //
 function TdwsSynSQLiteDataField.DataType : TdwsDataFieldType;
 begin
-   Result:=GetDataType;
+   Result := GetDataType;
 end;
 
 // IsNull
@@ -525,14 +528,14 @@ function TdwsSynSQLiteDataField.IsNull : Boolean;
 begin
    if FDataSet.FEOFReached then
       RaiseNoActiveRecord;
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldNull(Index);
+   Result := FDataSet.FRequest.FieldNull(Index);
 end;
 
 // GetName
 //
 function TdwsSynSQLiteDataField.GetName : String;
 begin
-   Result:=UTF8ToString(TdwsSynSQLiteDataSet(DataSet).FRequest.FieldName(Index));
+   Result := UTF8ToString(FDataSet.FRequest.FieldName(Index));
 end;
 
 // GetDataType
@@ -542,10 +545,10 @@ var
    sqlt : Integer;
    r : RawUTF8;
 begin
-   sqlt := TdwsSynSQLiteDataSet(DataSet).FRequest.FieldType(Index);
+   sqlt := FDataSet.FRequest.FieldType(Index);
    case sqlt of
       SQLITE_INTEGER : begin
-         r := TdwsSynSQLiteDataSet(DataSet).FRequest.FieldDeclaredType(Index);
+         r := FDataSet.FRequest.FieldDeclaredType(Index);
          if (Length(r) >= 4) and (r[1] in ['B', 'b'])
                              and (r[2] in ['O', 'o'])
                              and (r[3] in ['O', 'o'])
@@ -559,7 +562,7 @@ begin
          else Result := dftInteger;
       end;
       SQLITE_FLOAT : begin
-         r := TdwsSynSQLiteDataSet(DataSet).FRequest.FieldDeclaredType(Index);
+         r := FDataSet.FRequest.FieldDeclaredType(Index);
          if (Length(r) >= 4) and (r[1] in ['D', 'd'])
                              and (r[2] in ['A', 'a'])
                              and (r[3] in ['T', 't'])
@@ -579,16 +582,28 @@ end;
 //
 function TdwsSynSQLiteDataField.GetDeclaredType : String;
 begin
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldDeclaredTypeS(Index);
+   Result := FDataSet.FRequest.FieldDeclaredTypeS(Index);
 end;
 
 // AsString
 //
-function TdwsSynSQLiteDataField.AsString : String;
+procedure TdwsSynSQLiteDataField.AsString(var Result : String);
+var
+   rq : TSQLite3Statement;
 begin
    if FDataSet.FEOFReached then
       RaiseNoActiveRecord;
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldS(Index);
+   rq := FDataSet.FRequest.Request;
+   case sqlite3.column_type(rq, Index) of
+      SQLITE_INTEGER :
+         FastInt64ToStr(sqlite3.column_int64(rq, Index), Result);
+      SQLITE_FLOAT :
+         FastFloatToStr(sqlite3.column_double(rq, Index), Result, vFloatFormatSettings);
+      SQLITE_NULL :
+         Result := '';
+   else
+      Result := sqlite3.column_text16(rq, Index);
+   end;
 end;
 
 // AsInteger
@@ -597,7 +612,7 @@ function TdwsSynSQLiteDataField.AsInteger : Int64;
 begin
    if FDataSet.FEOFReached then
       RaiseNoActiveRecord;
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldInt(Index);
+   Result := FDataSet.FRequest.FieldInt(Index);
 end;
 
 // AsFloat
@@ -606,7 +621,7 @@ function TdwsSynSQLiteDataField.AsFloat : Double;
 begin
    if FDataSet.FEOFReached then
       RaiseNoActiveRecord;
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldDouble(Index);
+   Result := FDataSet.FRequest.FieldDouble(Index);
 end;
 
 // AsBlob
@@ -615,7 +630,7 @@ function TdwsSynSQLiteDataField.AsBlob : RawByteString;
 begin
    if FDataSet.FEOFReached then
       RaiseNoActiveRecord;
-   Result:=TdwsSynSQLiteDataSet(DataSet).FRequest.FieldBlob(Index);
+   Result := FDataSet.FRequest.FieldBlob(Index);
 end;
 
 // ------------------------------------------------------------------
@@ -629,6 +644,9 @@ initialization
    TdwsDatabase.RegisterDriver('SQLite', TdwsSynSQLiteDataBaseFactory.Create);
 
    vSQLite3DynamicMRSW:=TMultiReadSingleWrite.Create;
+
+   vFloatFormatSettings := FormatSettings;
+   vFloatFormatSettings.DecimalSeparator := '.';
 
 finalization
 

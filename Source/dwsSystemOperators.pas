@@ -73,16 +73,21 @@ var
 begin
    inherited Create;
 
-   typInteger:=systemTable.TypInteger;
-   typFloat:=systemTable.TypFloat;
-   typBoolean:=systemTable.TypBoolean;
-   typString:=systemTable.TypString;
-   typVariant:=systemTable.TypVariant;
-   typClassOf:=systemTable.TypClass;
+   typInteger := systemTable.TypInteger;
+   typFloat   := systemTable.TypFloat;
+   typBoolean := systemTable.TypBoolean;
+   typString  := systemTable.TypString;
+   typVariant := systemTable.TypVariant;
+   typClassOf := systemTable.TypClass;
 
    // implicit conversions
 
    RegisterCaster(typFloat,   typInteger,    TConvIntToFloatExpr,    True);
+
+   RegisterCaster(typInteger, typVariant,    TConvVarToIntegerExpr,  True);
+   RegisterCaster(typFloat,   typVariant,    TConvVarToFloatExpr,  True);
+   RegisterCaster(typBoolean, typVariant,    TConvVarToBoolExpr,  True);
+   RegisterCaster(typString,  typVariant,    TConvVarToStringExpr,  True);
 
    // computation operators
 
@@ -198,20 +203,37 @@ begin
    RegisterOperator(ttEQ,     TRelEqualBoolExpr,      typBoolean, typBoolean);
    RegisterOperator(ttEQ,     TRelEqualBoolExpr,      typVariant, typBoolean);
    RegisterOperator(ttEQ,     TRelEqualBoolExpr,      typBoolean, typVariant);
+   RegisterOperator(ttEQ_EQ,  TRelEqualBoolExpr,      typBoolean, typBoolean);
+   RegisterOperator(ttEQ_EQ,  TRelEqualBoolExpr,      typVariant, typBoolean);
+   RegisterOperator(ttEQ_EQ,  TRelEqualBoolExpr,      typBoolean, typVariant);
 
-   RegisterOperator(ttNOTEQ,  TRelNotEqualBoolExpr,   typBoolean, typBoolean);
-   RegisterOperator(ttNOTEQ,  TRelNotEqualBoolExpr,   typBoolean, typVariant);
-   RegisterOperator(ttNOTEQ,  TRelNotEqualBoolExpr,   typVariant, typBoolean);
+   RegisterOperator(ttNOT_EQ,    TRelNotEqualBoolExpr,   typBoolean, typBoolean);
+   RegisterOperator(ttNOT_EQ,    TRelNotEqualBoolExpr,   typBoolean, typVariant);
+   RegisterOperator(ttNOT_EQ,    TRelNotEqualBoolExpr,   typVariant, typBoolean);
+   RegisterOperator(ttEXCL_EQ,   TRelNotEqualBoolExpr,   typBoolean, typBoolean);
+   RegisterOperator(ttEXCL_EQ,   TRelNotEqualBoolExpr,   typBoolean, typVariant);
+   RegisterOperator(ttEXCL_EQ,   TRelNotEqualBoolExpr,   typVariant, typBoolean);
 
-   RegisterRelOp(ttEQ,     TRelEqualIntExpr, TRelEqualFloatExpr, TRelEqualStringExpr, TRelEqualVariantExpr);
-   RegisterRelOp(ttNOTEQ,  TRelNotEqualIntExpr, TRelNotEqualFloatExpr, TRelNotEqualStringExpr, TRelNotEqualVariantExpr);
-   RegisterRelOp(ttLESS,   TRelLessIntExpr, TRelLessFloatExpr, TRelLessStringExpr, TRelLessVariantExpr);
-   RegisterRelOp(ttLESSEQ, TRelLessEqualIntExpr, TRelLessEqualFloatExpr, TRelLessEqualStringExpr, TRelLessEqualVariantExpr);
-   RegisterRelOp(ttGTR,    TRelGreaterIntExpr, TRelGreaterFloatExpr, TRelGreaterStringExpr, TRelGreaterVariantExpr);
-   RegisterRelOp(ttGTREQ,  TRelGreaterEqualIntExpr, TRelGreaterEqualFloatExpr, TRelGreaterEqualStringExpr, TRelGreaterEqualVariantExpr);
+   RegisterRelOp(ttEQ,        TRelEqualIntExpr, TRelEqualFloatExpr, TRelEqualStringExpr, TRelEqualVariantExpr);
+   RegisterRelOp(ttEQ_EQ,     TRelEqualIntExpr, TRelEqualFloatExpr, TRelEqualStringExpr, TRelEqualVariantExpr);
+   RegisterRelOp(ttNOT_EQ,    TRelNotEqualIntExpr, TRelNotEqualFloatExpr, TRelNotEqualStringExpr, TRelNotEqualVariantExpr);
+   RegisterRelOp(ttEXCL_EQ,   TRelNotEqualIntExpr, TRelNotEqualFloatExpr, TRelNotEqualStringExpr, TRelNotEqualVariantExpr);
+   RegisterRelOp(ttLESS,      TRelLessIntExpr, TRelLessFloatExpr, TRelLessStringExpr, TRelLessVariantExpr);
+   RegisterRelOp(ttLESS_EQ,   TRelLessEqualIntExpr, TRelLessEqualFloatExpr, TRelLessEqualStringExpr, TRelLessEqualVariantExpr);
+   RegisterRelOp(ttGTR,       TRelGreaterIntExpr, TRelGreaterFloatExpr, TRelGreaterStringExpr, TRelGreaterVariantExpr);
+   RegisterRelOp(ttGTR_EQ,    TRelGreaterEqualIntExpr, TRelGreaterEqualFloatExpr, TRelGreaterEqualStringExpr, TRelGreaterEqualVariantExpr);
 
    RegisterOperator(ttEQ,     TRelEqualMetaExpr,      typClassOf, typClassOf);
-   RegisterOperator(ttNOTEQ,  TRelNotEqualMetaExpr,   typClassOf, typClassOf);
+   RegisterOperator(ttEQ_EQ,  TRelEqualMetaExpr,      typClassOf, typClassOf);
+   RegisterOperator(ttNOT_EQ, TRelNotEqualMetaExpr,   typClassOf, typClassOf);
+   RegisterOperator(ttEXCL_EQ,TRelNotEqualMetaExpr,   typClassOf, typClassOf);
+
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualBoolExpr,            typBoolean, typBoolean);
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualIntExpr,             typInteger, typInteger);
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualFloatExpr,           typFloat,   typFloat);
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualStringExpr,          typString,  typString);
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualMetaExpr,            typClassOf, typClassOf);
+   RegisterOperator(ttEQ_EQ_EQ, TRelEqualVariantStrictExpr,   typVariant, typVariant);
 
    RegisterOperator(ttIN,     TStringInStringExpr,    typString,  typString);
 

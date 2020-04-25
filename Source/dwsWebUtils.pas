@@ -38,7 +38,8 @@ type
 
          class function EncodeEncodedWord(const s : String) : String; static;
 
-         class function DateTimeToRFC822(const dt : TDateTime) : String; static;
+         class function DateTimeToRFC822(const dt : TdwsDateTime) : String; overload; static; inline;
+         class function DateTimeToRFC822(const dt : TDateTime) : String; overload; static;
          class function RFC822ToDateTime(const str : String) : TDateTime; static;
 
          class function HTMLTextEncode(const s : UnicodeString) : UnicodeString; static;
@@ -47,6 +48,8 @@ type
 
          class function HTMLAttributeEncode(const s : UnicodeString) : UnicodeString; static;
          class function HTMLAttributeDecode(const s : UnicodeString) : UnicodeString; static;
+
+         class function CSSTextEncode(const s : UnicodeString) : UnicodeString; static;
 
          class function XMLTextEncode(const s : UnicodeString) : UnicodeString; static;
          class function XMLTextDecode(const s : UnicodeString) : UnicodeString; static;
@@ -542,6 +545,13 @@ const
 
 // DateTimeToRFC822
 //
+class function WebUtils.DateTimeToRFC822(const dt : TdwsDateTime) : String;
+begin
+   Result := WebUtils.DateTimeToRFC822(dt.AsUTCDateTime);
+end;
+
+// DateTimeToRFC822
+//
 class function WebUtils.DateTimeToRFC822(const dt : TDateTime) : String;
 
    procedure Copy3(src, dest : PChar); inline;
@@ -998,6 +1008,33 @@ end;
 class function WebUtils.HTMLAttributeDecode(const s : UnicodeString) : UnicodeString;
 begin
    Result:=WebUtils.HTMLTextDecode(s);
+end;
+
+// CSSTextEncode
+//
+class function WebUtils.CSSTextEncode(const s : UnicodeString) : UnicodeString;
+var
+   pSrc, pDest : PWideChar;
+begin
+   if s = '' then Exit;
+   SetLength(Result, Length(s)*2); // worst case all characters escaped
+   pSrc  := Pointer(s);
+   pDest := Pointer(Result);
+   repeat
+      case pSrc^ of
+         #0 : break;
+         'A'..'Z', 'a'..'z', '0'..'9', #256..#$FFFF : begin
+            pDest^ := pSrc^;
+            Inc(pDest);
+         end;
+      else
+         pDest[0] := '\';
+         pDest[1] := pSrc^;
+         Inc(pDest, 2);
+      end;
+      Inc(pSrc);
+   until False;
+   SetLength(Result, (NativeUInt(pDest)-NativeUInt(Pointer(Result))) div SizeOf(Char));
 end;
 
 // XMLTextEncode

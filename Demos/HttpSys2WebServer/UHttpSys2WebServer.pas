@@ -92,6 +92,8 @@ type
          function  GetURLRewriteRules : String;
          procedure SetURLRewriteRules(const json : String);
 
+         procedure DoOnHTTPThreadException(sender : TThread; var e : Exception);
+
       public
          constructor Create; overload;
          class function Create(const basePath : TFileName; options : TdwsJSONValue;
@@ -252,7 +254,11 @@ end;
 //
 destructor THttpSys2WebServer.Destroy;
 begin
-   FServer.Free;
+   if FServer <> nil then begin
+      FServer.OnHttpThreadException := nil;
+      FServer.Free;
+      FServer := nil;
+   end;
    FDWS.Free;
    FDirectoryIndex.Free;
    FURLRewriter.Free;
@@ -267,9 +273,9 @@ var
 begin
    n:=Length(FDWSExtensions);
    SetLength(FDWSExtensions, n+list.ElementCount);
-   for i:=0 to list.ElementCount-1 do begin
-      FDWSExtensions[n+i].Str:=list.Elements[i].AsString;
-      FDWSExtensions[n+i].Typ:=typ;
+   for i := 0 to list.ElementCount-1 do begin
+      FDWSExtensions[n+i].Str := list.Elements[i].AsString;
+      FDWSExtensions[n+i].Typ := typ;
    end;
 end;
 
@@ -353,7 +359,8 @@ begin
       if serverOptions['Compression'].AsBoolean then
          FServer.RegisterCompress(CompressDeflate);
 
-      FServer.OnRequest:=Process;
+      FServer.OnHttpThreadException := DoOnHTTPThreadException;
+      FServer.OnRequest := Process;
 
       FServer.ServerName:=serverOptions['Name'].AsString;
 
@@ -422,6 +429,14 @@ begin
    FURLRewriter.AsJSON := json;
 end;
 
+// DoOnHTTPThreadException
+//
+procedure THttpSys2WebServer.DoOnHTTPThreadException(sender : TThread; var e : Exception);
+begin
+   if Assigned(FDWS) then
+      FDWS.LogError(e.ClassName + ': ' + e.Message);
+end;
+
 // Shutdown
 //
 procedure THttpSys2WebServer.Shutdown;
@@ -460,9 +475,10 @@ begin
    fileInfo := infoCache.FileAccessInfo(request.PathInfo);
    if (fileInfo = nil) or (Int64(t) > fileInfo.NextCheck) then begin
 
-      if fileInfo = nil then
-         fileInfo := infoCache.CreateFileAccessInfo(request.PathInfo)
-      else fileInfo.CookedPathName := request.PathInfo;
+      if fileInfo = nil then begin
+         fileInfo := infoCache.CreateFileAccessInfo(request.PathInfo);
+         fileInfo.DefaultMimeType := MIMETypeCache.MIMEType(fileInfo.CookedPathName);
+      end else fileInfo.CookedPathName := request.PathInfo;
       fileInfo.NextCheck := Int64(t) + cFileCacheExpiryMilliseconds * 10000;
 
       if not ExpandPathFileName(FPath, fileInfo.CookedPathName) then
@@ -522,6 +538,8 @@ begin
             FDWS.HandleP2JS(fileInfo.CookedPathName, request, response);
          {$endif}
       else
+         if fileInfo.DefaultMimeType <> '' then
+            response.ContentType := fileInfo.DefaultMimeType;
          FDWS.HandleDWS(fileInfo.CookedPathName, fileInfo.Typ, request, response, []);
       end;
    end;
@@ -531,11 +549,11 @@ end;
 //
 procedure THttpSys2WebServer.ProcessStaticFile(const pathName : String; request : TWebRequest; response : TWebResponse);
 var
-   ifModifiedSince : TDateTime;
-   lastModified : TDateTime;
+   ifModifiedSince : TdwsDateTime;
+   lastModified : TdwsDateTime;
 begin
    lastModified := FileDateTime(pathName);
-   if lastModified = 0 then begin
+   if lastModified.IsZero then begin
       ProcessStandardError(request, 404, 'not found',  response);
       Exit;
    end;
@@ -543,7 +561,7 @@ begin
    ifModifiedSince := request.IfModifiedSince;
 
    // compare with a precision to the second and no more
-   if Round(lastModified*86400) > Round(ifModifiedSince*86400) then begin
+   if lastModified.MillisecondsAheadOf(ifModifiedSince) >= 1000 then begin
 
       // http.sys will send the specified file from kernel mode
 

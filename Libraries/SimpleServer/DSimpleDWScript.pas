@@ -90,6 +90,7 @@ type
       FCPUAffinity : Cardinal;
 
       FPathVariables : TStrings;
+      FActiveCompileSystem : TdwsCustomFileSystem;
 
       FSystemInfo : TdwsSystemInfoLibModule;
       FHotPath : String;
@@ -151,6 +152,9 @@ type
 
       procedure CheckDirectoryChanges;
 
+      function GetCodeGenOptions : TdwsCodeGenOptions;
+      procedure SetCodeGenOptions(const val : TdwsCodeGenOptions);
+
    public
       procedure Initialize(const serverInfo : IWebServerInfo);
       procedure Finalize;
@@ -179,6 +183,9 @@ type
       function LiveQueries : String;
 
       procedure LogError(const msg : String);
+
+      procedure SetCompileFileSystem(const sys : TdwsCustomFileSystem);
+      property CodeGenOptions : TdwsCodeGenOptions read GetCodeGenOptions write SetCodeGenOptions;
 
       property ScriptTimeoutMilliseconds : Integer read FScriptTimeoutMilliseconds write FScriptTimeoutMilliseconds;
       property WorkerTimeoutMilliseconds : Integer read FWorkerTimeoutMilliseconds write FWorkerTimeoutMilliseconds;
@@ -330,6 +337,7 @@ begin
    ];
 
    dwsCompileSystem.OnFileStreamOpened := DoSourceFileStreamOpened;
+   FActiveCompileSystem := dwsCompileSystem;
 end;
 
 procedure TSimpleDWScript.DataModuleDestroy(Sender: TObject);
@@ -353,11 +361,20 @@ procedure TSimpleDWScript.HandleDWS(const fileName : String; typ : TFileAccessTy
 
    procedure HandleStaticFileWebResponse(response : TWebResponse);
    var
-      fileName : String;
+      fileName, contentType : String;
+      p : Integer;
    begin
+      fileName := UTF8ToString(response.ContentData);
+      p := Pos(#0, fileName);
+      if p > 0 then begin
+         contentType := Copy(fileName, p+1);
+         SetLength(fileName, p-1);
+      end;
       fileName := ApplyPathVariables(UTF8ToString(response.ContentData));
       fileName :=  dwsRuntimeFileSystem.AllocateFileSystem.ValidateFileName(fileName);
       if fileName <> '' then begin
+         if contentType <> '' then
+            fileName := fileName + #0 + contentType;
          response.ContentData := UTF8Encode(fileName);
       end else begin
          response.StatusCode := 501;
@@ -414,12 +431,12 @@ begin
       exec.BeginProgram;
 
       // insert into executing queue
-      executing.Prev:=nil;
+      executing.Prev := nil;
       FExecutingScriptsLock.BeginWrite;
-      executing.Next:=FExecutingScripts;
-      if FExecutingScripts<>nil then
-         FExecutingScripts.Prev:=@executing;
-      FExecutingScripts:=@executing;
+      executing.Next := FExecutingScripts;
+      if FExecutingScripts <> nil then
+         FExecutingScripts.Prev := @executing;
+      FExecutingScripts := @executing;
       FExecutingScriptsLock.EndWrite;
 
       if optWorker in options then
@@ -428,16 +445,16 @@ begin
 
       // extract from executing queue
       FExecutingScriptsLock.BeginWrite;
-      if executing.Prev<>nil then
-         executing.Prev.Next:=executing.Next
-      else FExecutingScripts:=executing.Next;
-      if executing.Next<>nil then
-         executing.Next.Prev:=executing.Prev;
+      if executing.Prev <> nil then
+         executing.Prev.Next := executing.Next
+      else FExecutingScripts := executing.Next;
+      if executing.Next <> nil then
+         executing.Next.Prev := executing.Prev;
       FExecutingScriptsLock.EndWrite;
 
       exec.EndProgram;
    finally
-      exec.Environment:=nil;
+      exec.Environment := nil;
    end;
 
    if exec.Msgs.Count>0 then begin
@@ -472,30 +489,58 @@ end;
 // HandleP2JS
 //
 procedure TSimpleDWScript.HandleP2JS(const fileName : String; request : TWebRequest; response : TWebResponse);
+
+   function ProgETag(const prog : IdwsProgram) : String;
+   begin
+      Result := 'W/' + IntToHex(Round((prog.TimeStamp)*86400), 8);
+   end;
+
 var
    code, js : String;
    prog : IdwsProgram;
+   cp : TCompiledProgram;
+   staticCache : TWebStaticCacheEntry;
 begin
-   if (CPUUsageLimit>0) and not WaitForCPULimit then begin
+   if (CPUUsageLimit > 0) and not WaitForCPULimit then begin
       Handle503(response);
       Exit;
    end;
 
    TryAcquireDWS(fileName, prog);
+   if (prog <> nil) and (prog.ProgramObject.TagInterface <> nil) then begin
+      staticCache := prog.ProgramObject.TagInterface.GetSelf as TWebStaticCacheEntry;
+      staticCache.HandleStatic(request, response);
+      Exit;
+   end;
+
    FCompilerLock.Enter;
    try
       FCompilerFiles := TAutoStrings.Create;
       FCodeGenLock.Enter;
       try
-         if prog=nil then begin
-            code:=dwsCompileSystem.AllocateFileSystem.LoadTextFile(fileName);
-            FHotPath:=ExtractFilePath(fileName);
-            js:=FJSFilter.CompileToJS(prog, code);
+         if prog = nil then begin
+            code := FJSCompiler.Config.CompileFileSystem.AllocateFileSystem.LoadTextFile(fileName);
+            FHotPath := ExtractFilePath(fileName);
+            js := FJSFilter.CompileToJS(prog, code, '', True);
          end else begin
-            js:=FJSFilter.CompileToJS(prog, '');
+            js := FJSFilter.CompileToJS(prog, '');
          end;
       finally
          FCodeGenLock.Leave;
+      end;
+
+      prog.DropMapAndDictionary;
+      cp.Name  := fileName;
+
+      FCompiledProgramsLock.BeginWrite;
+      try
+         if not FCompiledPrograms.Match(cp) then begin
+            cp.Prog  := prog;
+            cp.Files := FCompilerFiles;
+            FCompiledPrograms.Replace(cp);
+         end;
+      finally
+         FCompiledProgramsLock.EndWrite;
       end;
    finally
       FCompilerFiles := nil;
@@ -504,8 +549,12 @@ begin
    if (prog<>nil) and prog.Msgs.HasErrors then
       Handle500(response, prog.Msgs)
    else begin
-      response.ContentData:='(function(){'#13#10+UTF8Encode(js)+'})();'#13#10;
-      response.ContentType:='text/javascript; charset=UTF-8';
+      response.ContentData := '(function(){'#10 + UTF8Encode(js) + '})();'#13;
+      response.ContentType := 'text/javascript; charset=UTF-8';
+      if prog <> nil then begin
+         prog.DropMapAndDictionary;
+         prog.ProgramObject.TagInterface := TWebStaticCacheEntry.Create(response);
+      end;
    end;
 end;
 
@@ -516,7 +565,7 @@ var
    prog : IdwsProgram;
    fileName : String;
 begin
-   fileName := dwsCompileSystem.AllocateFileSystem.ValidateFileName(sourceName);
+   fileName := FActiveCompileSystem.AllocateFileSystem.ValidateFileName(sourceName);
    if (fileName = '') and Assigned(FBackgroundFileSystem) then
       fileName := FBackgroundFileSystem.ValidateFileName(sourceName);
    if fileName = '' then
@@ -538,7 +587,7 @@ var
    wr : TdwsJSONWriter;
    execStats : TdwsProgramExecStats;
 begin
-   fileName := dwsCompileSystem.AllocateFileSystem.ValidateFileName(sourceName);
+   fileName := FActiveCompileSystem.AllocateFileSystem.ValidateFileName(sourceName);
    if (fileName = '') and Assigned(FBackgroundFileSystem) then
       fileName := FBackgroundFileSystem.ValidateFileName(sourceName);
    if fileName = '' then
@@ -722,7 +771,7 @@ begin
       LogCompilation('Compiling "%s"', [fileName]);
       FCompilerFiles := TAutoStrings.Create;
 
-      code := dwsCompileSystem.AllocateFileSystem.LoadTextFile(fileName);
+      code := FActiveCompileSystem.AllocateFileSystem.LoadTextFile(fileName);
 
       // check after compiler lock in case of simultaneous requests
       TryAcquireDWS(fileName, prog);
@@ -781,6 +830,17 @@ begin
    AppendTextToUTF8File(ErrorLogDirectory+'error.log', UTF8Encode(buf));
 end;
 
+// SetCompileFileSystem
+//
+procedure TSimpleDWScript.SetCompileFileSystem(const sys : TdwsCustomFileSystem);
+begin
+   if sys = nil then
+      FActiveCompileSystem := dwsCompileSystem
+   else FActiveCompileSystem := sys;
+   DelphiWebScript.Config.CompileFileSystem := FActiveCompileSystem;
+   FJSCompiler.Config.CompileFileSystem := FActiveCompileSystem;
+end;
+
 // LogCompileErrors
 //
 procedure TSimpleDWScript.LogCompileErrors(const fileName : String; const msgs : TdwsMessageList);
@@ -830,7 +890,7 @@ begin
    else if FHotPath <> '' then
       pathName := FHotPath + scriptName;
    if pathName <> '' then
-      scriptSource := dwsCompileSystem.AllocateFileSystem.LoadTextFile(pathName);
+      scriptSource := FActiveCompileSystem.AllocateFileSystem.LoadTextFile(pathName);
 end;
 
 // DoNeedUnit
@@ -1035,6 +1095,20 @@ begin
    FCheckDirectoryChanges := TTimerTimeout.Create(cCheckDirectoryChangesInterval, CheckDirectoryChanges);
 end;
 
+// GetCodeGenOptions
+//
+function TSimpleDWScript.GetCodeGenOptions : TdwsCodeGenOptions;
+begin
+   Result := FJSFilter.CodeGenOptions;
+end;
+
+// SetCodeGenOptions
+//
+procedure TSimpleDWScript.SetCodeGenOptions(const val : TdwsCodeGenOptions);
+begin
+   FJSFilter.CodeGenOptions := val;
+end;
+
 // Initialize
 //
 procedure TSimpleDWScript.Initialize(const serverInfo : IWebServerInfo);
@@ -1048,6 +1122,7 @@ begin
    FBkgndWorkers:=TdwsBackgroundWorkersLib.Create(Self);
    FBkgndWorkers.dwsBackgroundWorkers.Script:=DelphiWebScript;
    FBkgndWorkers.OnBackgroundWork:=DoBackgroundWork;
+   FBkgndWorkers.OnBackgroundLogEvent:=LogError;
 end;
 
 // Finalize
@@ -1081,6 +1156,9 @@ procedure TSimpleDWScript.Startup;
 var
    startupWebRequest : TWebRequest;
 begin
+   if ErrorLogDirectory <> '' then
+      LogError('Startup ' + ParamStr(0));
+
    FBackgroundFileSystem:=dwsRuntimeFileSystem.AllocateFileSystem;
 
    GetSystemTimeAsFileTime(FLastCheckTime);
@@ -1102,6 +1180,9 @@ procedure TSimpleDWScript.Shutdown;
 var
    shutdownWebRequest : TWebRequest;
 begin
+   if ErrorLogDirectory <> '' then
+      LogError('Shutdown ' + ParamStr(0));
+
    FCheckDirectoryChanges := nil;
 
    FBackgroundFileSystem:=nil;

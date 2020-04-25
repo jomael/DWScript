@@ -25,7 +25,7 @@ interface
 
 uses
    Classes, Math,
-   dwsUtils, dwsStrings,
+   dwsUtils, {$IFDEF German} dwsStringsGerman, {$ELSE} dwsStrings, {$ENDIF}
    dwsFunctions, dwsExprs, dwsSymbols, dwsMagicExprs, dwsXPlatform, dwsExprList;
 
 type
@@ -179,6 +179,26 @@ type
    end;
 
    TSignIntFunc = class(TInternalMagicIntFunction)
+      function DoEvalAsInteger(const args : TExprBaseListExec) : Int64; override;
+   end;
+
+   TAbsFloatFunc = class(TInternalMagicFloatFunction)
+      procedure DoEvalAsFloat(const args : TExprBaseListExec; var Result : Double); override;
+   end;
+
+   TAbsIntFunc = class(TInternalMagicIntFunction)
+      function DoEvalAsInteger(const args : TExprBaseListExec) : Int64; override;
+   end;
+
+   TAbsVariantFunc = class(TInternalMagicVariantFunction)
+      procedure DoEvalAsVariant(const args : TExprBaseListExec; var result : Variant); override;
+   end;
+
+   TTestBitFunc = class(TInternalMagicBoolFunction)
+      function DoEvalAsBoolean(const args : TExprBaseListExec) : Boolean; override;
+   end;
+
+   TPopCountFunc = class(TInternalMagicIntFunction)
       function DoEvalAsInteger(const args : TExprBaseListExec) : Int64; override;
    end;
 
@@ -650,6 +670,50 @@ begin
    Result:=Sign(args.AsInteger[0]);
 end;
 
+{ TAbsFloatFunc  }
+
+procedure TAbsFloatFunc.DoEvalAsFloat(const args : TExprBaseListExec; var Result : Double);
+begin
+   Result := Abs(args.AsFloat[0]);
+end;
+
+{ TAbsIntFunc }
+
+function TAbsIntFunc.DoEvalAsInteger(const args : TExprBaseListExec) : Int64;
+begin
+   Result := Abs(args.AsInteger[0]);
+end;
+
+{ TAbsVariantFunc }
+
+procedure TAbsVariantFunc.DoEvalAsVariant(const args : TExprBaseListExec; var result : Variant);
+var
+   v : Variant;
+begin
+   args.EvalAsVariant(0, v);
+   Result := Abs(v);
+end;
+
+{ TTestBitFunc }
+
+function TTestBitFunc.DoEvalAsBoolean(const args : TExprBaseListExec) : Boolean;
+var
+   bit : Integer;
+begin
+   bit := args.AsInteger[1];
+   Result := (bit in [0..63]) and ((UInt64(args.AsInteger[0]) and (UInt64(1) shl bit)) <> 0);
+end;
+
+{ TPopCountFunc }
+
+function TPopCountFunc.DoEvalAsInteger(const args : TExprBaseListExec) : Int64;
+var
+   v : Int64;
+begin
+   v := args.AsInteger[0];
+   Result := PopCount64(@v, 1);
+end;
+
 { TCompareNumIntsFunc }
 
 function TCompareNumIntsFunc.DoEvalAsInteger(const args : TExprBaseListExec) : Int64;
@@ -947,8 +1011,15 @@ initialization
    RegisterInternalFloatFunction(TDegToRadFunc, 'DegToRad', ['a', SYS_FLOAT], [iffStateLess], 'DegToRad');
    RegisterInternalFloatFunction(TRadToDegFunc, 'RadToDeg', ['a', SYS_FLOAT], [iffStateLess], 'RadToDeg');
 
-   RegisterInternalIntFunction(TSignFunc, 'Sign', ['v', SYS_FLOAT], [iffStateLess, iffOverloaded], 'Sign');
-   RegisterInternalIntFunction(TSignIntFunc, 'Sign', ['v', SYS_INTEGER], [iffStateLess, iffOverloaded], 'Sign');
+   RegisterInternalIntFunction(TSignFunc,       'Sign', ['v', SYS_FLOAT], [iffStateLess, iffOverloaded], 'Sign');
+   RegisterInternalIntFunction(TSignIntFunc,    'Sign', ['v', SYS_INTEGER], [iffStateLess, iffOverloaded], 'Sign');
+
+   RegisterInternalFloatFunction(TAbsFloatFunc, 'Abs', ['!v', SYS_FLOAT], [iffStateLess, iffOverloaded], 'Abs');
+   RegisterInternalIntFunction(TAbsIntFunc,     'Abs', ['!v', SYS_INTEGER], [iffStateLess, iffOverloaded], 'Abs');
+   RegisterInternalFunction(TAbsVariantFunc,    'Abs', ['!v', SYS_VARIANT], SYS_VARIANT, [iffStateLess, iffOverloaded]);
+
+   RegisterInternalBoolFunction(TTestBitFunc,   'TestBit', ['i', SYS_INTEGER, 'bit', SYS_INTEGER], [iffStateLess], 'TestBit');
+   RegisterInternalIntFunction(TPopCountFunc,   'PopCount', ['i', SYS_INTEGER], [iffStateLess], 'PopCount');
 
    RegisterInternalIntFunction(TCompareNumIntsFunc, 'CompareNum', ['a', SYS_INTEGER, 'b', SYS_INTEGER], [iffStateLess, iffOverloaded], 'Compare');
    RegisterInternalIntFunction(TCompareNumFloatsFunc, 'CompareNum', ['a', SYS_FLOAT, 'b', SYS_FLOAT], [iffStateLess, iffOverloaded], 'Compare');

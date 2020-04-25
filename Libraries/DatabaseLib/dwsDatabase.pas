@@ -38,6 +38,7 @@ type
       dftBlob
       );
 
+   TdwsDataSet = class;
    IdwsDataSet = interface;
    IdwsDataField = interface;
 
@@ -62,13 +63,24 @@ type
    end;
 
    IdwsDataSet = interface
-      ['{59B7AFB8-A2C9-4252-8921-A9605879EEDD}']
+      ['{8C1F4B26-C7C7-45A7-9699-4092F8DEA66F}']
       function Eof : Boolean;
       procedure Next;
 
       function GetField(index : Integer) : IdwsDataField;
       property Fields[index : Integer] : IdwsDataField read GetField;
       function FieldCount : Integer;
+
+      function GetIsNullField(index : Integer) : Boolean;
+      procedure GetStringField(index : Integer; var result : String);
+      function GetIntegerField(index : Integer) : Int64;
+      function GetFloatField(index : Integer) : Double;
+      function GetBooleanField(index : Integer) : Boolean;
+      function GetBlobField(index : Integer) : RawByteString;
+
+      procedure SetID(const id : Int64);
+      function GetID : Int64;
+      property ID : Int64 read GetID write SetID;
    end;
 
    IdwsDataField = interface
@@ -78,7 +90,7 @@ type
       function DeclaredType : String;
 
       function IsNull : Boolean;
-      function AsString : String;
+      procedure GetAsString(var Result : String);
       function AsInteger : Int64;
       function AsFloat : Double;
       function AsBoolean : Boolean;
@@ -117,10 +129,18 @@ type
          procedure SetOption(const name, value : String); virtual;
    end;
 
+   TdwsDataSetCreateEvent = procedure (const location : String; const id : NativeUInt) of object;
+   TdwsDataSetDestroyEvent = procedure (const id : NativeUInt) of object;
+
    TdwsDataSet = class (TInterfacedSelfObject, IUnknown, IdwsDataSet)
       private
          FDataBase : IdwsDataBase;
-         FFieldsPrepared : Boolean;
+         FFieldCount : Integer;
+         FID : NativeUInt;
+
+         class var vNextID : NativeUInt;
+         class var vOnDataSetCreate : TdwsDataSetCreateEvent;
+         class var vOnDataSetDestroy : TdwsDataSetDestroyEvent;
 
       protected
          FFields : array of IdwsDataField;
@@ -132,6 +152,11 @@ type
 
          property DataBase : IdwsDataBase read FDataBase;
 
+         class procedure RaiseInvalidFieldIndex(index : Integer); static;
+
+         procedure SetID(const id : Int64); inline;
+         function GetID : Int64; inline;
+
       public
          constructor Create(const db : IdwsDataBase);
          destructor Destroy; override;
@@ -139,8 +164,23 @@ type
          function Eof : Boolean; virtual; abstract;
          procedure Next; virtual; abstract;
 
-         function GetField(index : Integer) : IdwsDataField; virtual;
+         function GetField(index : Integer) : IdwsDataField;
          function FieldCount : Integer; virtual;
+
+         function GetIsNullField(index : Integer) : Boolean;
+         procedure GetStringField(index : Integer; var result : String);
+         function GetIntegerField(index : Integer) : Int64;
+         function GetFloatField(index : Integer) : Double;
+         function GetBooleanField(index : Integer) : Boolean;
+         function GetBlobField(index : Integer) : RawByteString;
+
+         class function  NotifyCreate(const location : String) : NativeUInt; static;
+         class procedure NotifyDestroy(id : NativeUInt); inline; static;
+
+         class procedure RegisterCallbacks(const onCreate : TdwsDataSetCreateEvent;
+                                           const onDestroy : TdwsDataSetDestroyEvent); static;
+         class procedure ClearCallbacks; static;
+         class function  CallbacksRegistered : Boolean; inline; static;
    end;
 
    TdwsDataField = class (TInterfacedSelfObject, IdwsDataField)
@@ -168,8 +208,10 @@ type
          function DataType : TdwsDataFieldType; virtual;
          function DeclaredType : String;
 
+         procedure GetAsString(var Result : String);
+
          function IsNull : Boolean; virtual; abstract;
-         function AsString : String; virtual; abstract;
+         procedure AsString(var Result : String); virtual; abstract;
          function AsInteger : Int64; virtual; abstract;
          function AsFloat : Double; virtual; abstract;
          function AsBoolean : Boolean; virtual;
@@ -258,58 +300,205 @@ end;
 constructor TdwsDataSet.Create(const db : IdwsDataBase);
 begin
    inherited Create;
-   FDataBase:=db;
+   FDataBase := db;
+   FFieldCount := -1;
 end;
 
 // Destroy
 //
 destructor TdwsDataSet.Destroy;
 begin
+   NotifyDestroy(FID);
    SetLength(FFields, 0);
+   FFieldCount := -1;
    inherited;
+end;
+
+// RaiseInvalidFieldIndex
+//
+class procedure TdwsDataSet.RaiseInvalidFieldIndex(index : Integer);
+begin
+   raise Exception.CreateFmt('Invalid field index %d', [index]);
+end;
+
+// SetID
+//
+procedure TdwsDataSet.SetID(const id : Int64);
+begin
+   FID := id;
+end;
+
+// GetID
+//
+function TdwsDataSet.GetID : Int64;
+begin
+   Result := FID;
 end;
 
 // GetField
 //
 function TdwsDataSet.GetField(index : Integer) : IdwsDataField;
 begin
-   if not FFieldsPrepared then begin
+   if FFieldCount < 0 then
       PrepareFields;
-      FFieldsPrepared:=True;
-   end;
-   if Cardinal(index) < Cardinal(Length(FFields)) then
-      Result:=FFields[index]
-   else raise Exception.CreateFmt('Invalid field index %d', [index]);
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      Result := FFields[index]
+   else RaiseInvalidFieldIndex(index);
 end;
 
 // FieldCount
 //
 function TdwsDataSet.FieldCount : Integer;
 begin
-   if not FFieldsPrepared then
+   if FFieldCount < 0 then
       PrepareFields;
-   Result:=Length(FFields);
+   Result := FFieldCount;
+end;
+
+// GetIsNullField
+//
+function TdwsDataSet.GetIsNullField(index : Integer) : Boolean;
+begin
+   Result := GetField(index).IsNull;
+end;
+
+// GetStringField
+//
+procedure TdwsDataSet.GetStringField(index : Integer; var result : String);
+begin
+   if FFieldCount < 0 then
+      PrepareFields;
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      FFields[index].GetAsString(result)
+   else RaiseInvalidFieldIndex(index);
+end;
+
+// GetIntegerField
+//
+function TdwsDataSet.GetIntegerField(index : Integer) : Int64;
+begin
+   if FFieldCount < 0 then
+      PrepareFields;
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      Result := FFields[index].AsInteger
+   else begin
+      RaiseInvalidFieldIndex(index);
+      Result := 0;
+   end;
+end;
+
+// GetFloatField
+//
+function TdwsDataSet.GetFloatField(index : Integer) : Double;
+begin
+   if FFieldCount < 0 then
+      PrepareFields;
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      Result := FFields[index].AsFloat
+   else begin
+      RaiseInvalidFieldIndex(index);
+      Result := 0;
+   end;
+end;
+
+// GetBooleanField
+//
+function TdwsDataSet.GetBooleanField(index : Integer) : Boolean;
+begin
+   if FFieldCount < 0 then
+      PrepareFields;
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      Result := FFields[index].AsBoolean
+   else begin
+      RaiseInvalidFieldIndex(index);
+      Result := False;
+   end;
+end;
+
+// GetBlobField
+//
+function TdwsDataSet.GetBlobField(index : Integer) : RawByteString;
+begin
+   if FFieldCount < 0 then
+      PrepareFields;
+   if Cardinal(index) < Cardinal(FFieldCount) then
+      Result := FFields[index].AsBlob
+   else begin
+      RaiseInvalidFieldIndex(index);
+      Result := '';
+   end;
+end;
+
+// NotifyCreate
+//
+class function TdwsDataSet.NotifyCreate(const location : String) : NativeUInt;
+begin
+   Result := AtomicIncrement(vNextID);
+   if Assigned(vOnDataSetCreate) then
+      vOnDataSetCreate(location, Result);
+end;
+
+// NotifyDestroy
+//
+class procedure TdwsDataSet.NotifyDestroy(id : NativeUInt);
+begin
+   if Assigned(vOnDataSetDestroy) then
+      vOnDataSetDestroy(id);
+end;
+
+// RegisterCallbacks
+//
+class procedure TdwsDataSet.RegisterCallbacks(const onCreate : TdwsDataSetCreateEvent;
+                                              const onDestroy : TdwsDataSetDestroyEvent);
+begin
+   vOnDataSetCreate := onCreate;
+   vOnDataSetDestroy := onDestroy;
+end;
+
+// ClearCallbacks
+//
+class procedure TdwsDataSet.ClearCallbacks;
+begin
+   vOnDataSetCreate := nil;
+   vOnDataSetDestroy := nil;
+end;
+
+// CallbacksRegistered
+//
+class function TdwsDataSet.CallbacksRegistered : Boolean;
+begin
+   Result := Assigned(vOnDataSetCreate);
 end;
 
 // PrepareFields
 //
 procedure TdwsDataSet.PrepareFields;
 begin
-   if not FFieldsPrepared then begin
+   if FFieldCount < 0 then begin
       DoPrepareFields;
-      FFieldsPrepared:=True;
+      FFieldCount := Length(FFields);
    end;
 end;
 
 // _Release
 //
 function TdwsDataSet._Release : Integer;
+var
+   nbFields : Integer;
 begin
-   Result:=DecRefCount;
-   if Result=0 then
+   Result := DecRefCount;
+   if Result = 0 then
       Destroy
-   else if Result=Length(FFields) then
-      SetLength(FFields, 0);
+   else begin
+      // each field holds a reference to dataset, so when RefCount = nbFields,
+      // the dataset is no longer referenced
+      nbFields := Length(FFields);
+      if Result = nbFields then begin
+         FFieldCount := -1;
+         if nbFields > 0 then
+            SetLength(FFields, 0);
+      end;
+   end;
 end;
 
 // ------------------
@@ -349,6 +538,13 @@ begin
    if FDeclaredType='' then
       FDeclaredType:=GetDeclaredType;
    Result:=FDeclaredType;
+end;
+
+// GetAsString
+//
+procedure TdwsDataField.GetAsString(var Result : String);
+begin
+   AsString(Result);
 end;
 
 // AsBoolean

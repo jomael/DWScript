@@ -97,13 +97,15 @@ type
 
          procedure AddDependency(ums : TUnitMainSymbol);
 
+         procedure AddInitializationExpr(anExpr : TExprBase);
+
          property Table : TUnitSymbolTable read FTable;
 
          property InterfaceTable : TSymbolTable read FInterfaceTable;
          property ImplementationTable : TUnitImplementationTable read FImplementationTable;
 
          property InitializationRank : Integer read FInitializationRank write FInitializationRank;
-         property InitializationExpr : TExprBase read FInitializationExpr write FInitializationExpr;
+         property InitializationExpr : TExprBase read FInitializationExpr;
          property FinalizationExpr : TExprBase read FFinalizationExpr write FFinalizationExpr;
          property DeprecatedMessage : String read FDeprecatedMessage write FDeprecatedMessage;
          property Dependencies : TUnitMainSymbolArray read FDependencies;
@@ -340,6 +342,8 @@ implementation
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
+
+uses dwsExprs, dwsCoreExprs;
 
 // ------------------
 // ------------------ TIdwsUnitList ------------------
@@ -670,6 +674,24 @@ begin
    FDependencies[n]:=ums;
 end;
 
+// AddInitializationExpr
+//
+procedure TUnitMainSymbol.AddInitializationExpr(anExpr : TExprBase);
+var
+   block : TBlockExprNoTable;
+begin
+   if FInitializationExpr = nil then
+      FInitializationExpr := anExpr
+   else if FInitializationExpr is TBlockExprNoTable then
+      TBlockExpr(FInitializationExpr).AddStatement(anExpr as TProgramExpr)
+   else begin
+      block := TBlockExprNoTable.Create(FInitializationExpr.ScriptPos);
+      block.AddStatement(FInitializationExpr as TProgramExpr);
+      block.AddStatement(anExpr as TProgramExpr);
+      FInitializationExpr := block;
+   end;
+end;
+
 // ReferenceInSymbolTable
 //
 function TUnitMainSymbol.ReferenceInSymbolTable(aTable : TSymbolTable; implicit : Boolean) : TUnitSymbol;
@@ -800,11 +822,14 @@ end;
 // RegisterNameSpaceUnit
 //
 procedure TUnitSymbol.RegisterNameSpaceUnit(unitSymbol : TUnitSymbol);
+var
+   lcName : String;
 begin
    if FNameSpace=nil then begin
-      FNameSpace:=TNameObjectHash.Create;
+      FNameSpace := TNameObjectHash.Create;
    end;
-   FNameSpace[UnicodeLowerCase(unitSymbol.Name)] := unitSymbol;
+   UnicodeLowerCase(unitSymbol.Name, lcName);
+   FNameSpace[lcName] := unitSymbol;
 end;
 
 // FindNameSpaceUnit
@@ -812,8 +837,11 @@ end;
 function TUnitSymbol.FindNameSpaceUnit(const name : String) : TUnitSymbol;
 
    function FindInNameSpace : TUnitSymbol;
+   var
+      lcName : String;
    begin
-      Result := TUnitSymbol(FNameSpace[UnicodeLowerCase(name)]);
+      UnicodeLowerCase(name, lcName);
+      Result := TUnitSymbol(FNameSpace[lcName]);
    end;
 
 begin

@@ -448,7 +448,7 @@ object dwsCryptoLib: TdwsCryptoLib
                 DefaultValue = ''
               end>
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsRegisterEval
+            OnFastEvalNoResult = dwsCryptoClassesNoncesMethodsRegisterFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -466,7 +466,7 @@ object dwsCryptoLib: TdwsCryptoLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsGenerateEval
+            OnFastEvalString = dwsCryptoClassesNoncesMethodsGenerateFastEvalString
             Kind = mkClassFunction
           end
           item
@@ -484,7 +484,7 @@ object dwsCryptoLib: TdwsCryptoLib
               end>
             ResultType = 'Boolean'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsCheckAndKeepEval
+            OnFastEvalBoolean = dwsCryptoClassesNoncesMethodsCheckAndKeepFastEvalBoolean
             Kind = mkClassFunction
           end
           item
@@ -502,7 +502,7 @@ object dwsCryptoLib: TdwsCryptoLib
               end>
             ResultType = 'Boolean'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsCheckAndRemoveEval
+            OnFastEvalBoolean = dwsCryptoClassesNoncesMethodsCheckAndRemoveFastEvalBoolean
             Kind = mkClassFunction
           end
           item
@@ -514,7 +514,7 @@ object dwsCryptoLib: TdwsCryptoLib
               end>
             ResultType = 'String'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsGetDataEval
+            OnFastEvalString = dwsCryptoClassesNoncesMethodsGetDataFastEvalString
             Kind = mkClassFunction
           end
           item
@@ -525,7 +525,7 @@ object dwsCryptoLib: TdwsCryptoLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsRemoveEval
+            OnFastEvalNoResult = dwsCryptoClassesNoncesMethodsRemoveFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
@@ -536,19 +536,19 @@ object dwsCryptoLib: TdwsCryptoLib
                 DataType = 'String'
               end>
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsRemoveByDataEval
+            OnFastEvalNoResult = dwsCryptoClassesNoncesMethodsRemoveByDataFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
             Name = 'Clear'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsClearEval
+            OnFastEvalNoResult = dwsCryptoClassesNoncesMethodsClearFastEvalNoResult
             Kind = mkClassProcedure
           end
           item
             Name = 'Collect'
             Attributes = [maStatic]
-            OnEval = dwsCryptoClassesNoncesMethodsCollectEval
+            OnFastEvalNoResult = dwsCryptoClassesNoncesMethodsCollectFastEvalNoResult
             Kind = mkClassProcedure
           end>
       end
@@ -626,6 +626,119 @@ object dwsCryptoLib: TdwsCryptoLib
             OnEval = dwsCryptoClassesECCsecp256r1MethodsECDSAVerifyEval
             Kind = mkClassFunction
           end>
+      end
+      item
+        Name = 'TRSAKey'
+        Constructors = <
+          item
+            Name = 'Generate'
+            Parameters = <
+              item
+                Name = 'bitSize'
+                DataType = 'Integer'
+              end>
+            OnEval = dwsCryptoClassesTRSAKeyConstructorsGenerateEval
+          end
+          item
+            Name = 'ImportJSON'
+            Parameters = <
+              item
+                Name = 'jsonData'
+                DataType = 'String'
+              end>
+            OnEval = dwsCryptoClassesTRSAKeyConstructorsImportJSONEval
+          end>
+        Methods = <
+          item
+            Name = 'DestroyKey'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsDestroyKeyEval
+            Kind = mkProcedure
+          end
+          item
+            Name = 'SignHash'
+            Parameters = <
+              item
+                Name = 'paddingAlgorithm'
+                DataType = 'String'
+              end
+              item
+                Name = 'hashHex'
+                DataType = 'String'
+              end>
+            ResultType = 'String'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsSignHashEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'VerifyHash'
+            Parameters = <
+              item
+                Name = 'paddingAlgorithm'
+                DataType = 'String'
+              end
+              item
+                Name = 'hashHex'
+                DataType = 'String'
+              end
+              item
+                Name = 'signature'
+                DataType = 'String'
+              end>
+            ResultType = 'Boolean'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsVerifyHashEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'ExportJSON'
+            ResultType = 'String'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsExportJSONEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'Encrypt'
+            Parameters = <
+              item
+                Name = 'data'
+                DataType = 'String'
+              end
+              item
+                Name = 'paddingAlgorithm'
+                DataType = 'String'
+              end
+              item
+                Name = 'initializationVector'
+                DataType = 'String'
+              end>
+            ResultType = 'String'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsEncryptEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'Decrypt'
+            Parameters = <
+              item
+                Name = 'data'
+                DataType = 'String'
+              end
+              item
+                Name = 'paddingAlgorithm'
+                DataType = 'String'
+              end
+              item
+                Name = 'initializationVector'
+                DataType = 'String'
+              end>
+            ResultType = 'String'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsDecryptEval
+            Kind = mkFunction
+          end
+          item
+            Name = 'BlockLength'
+            ResultType = 'Integer'
+            OnEval = dwsCryptoClassesTRSAKeyMethodsBlockLengthEval
+            Kind = mkFunction
+          end>
+        OnCleanUp = dwsCryptoClassesTRSAKeyCleanUp
       end>
     Functions = <
       item
@@ -636,12 +749,12 @@ object dwsCryptoLib: TdwsCryptoLib
             DataType = 'Integer'
           end>
         ResultType = 'String'
-        OnEval = dwsCryptoFunctionsCryptographicRandomEval
+        OnFastEval = dwsCryptoFunctionsCryptographicRandomFastEval
       end
       item
         Name = 'ProcessUniqueRandom'
         ResultType = 'String'
-        OnEval = dwsCryptoFunctionsProcessUniqueRandomEval
+        OnFastEval = dwsCryptoFunctionsProcessUniqueRandomFastEval
       end
       item
         Name = 'CryptographicToken'
@@ -653,7 +766,12 @@ object dwsCryptoLib: TdwsCryptoLib
             DefaultValue = 120
           end>
         ResultType = 'String'
-        OnEval = dwsCryptoFunctionsCryptographicTokenEval
+        OnFastEval = dwsCryptoFunctionsCryptographicTokenFastEval
+      end
+      item
+        Name = 'CompilationUniqueRandom'
+        ResultType = 'String'
+        OnFastEval = dwsCryptoFunctionsCompilationUniqueRandomFastEval
       end>
     UnitName = 'System.Crypto'
     StaticSymbols = True

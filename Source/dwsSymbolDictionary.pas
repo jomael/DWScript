@@ -34,7 +34,7 @@ type
      suImplicit indicates that the symbol was only implicitly present
      suRTTI indicates explicit RTTI access of the symbol }
    TSymbolUsage = (suForward, suDeclaration, suImplementation, suReference,
-                   suRead, suWrite, suImplicit, suRTTI );
+                   suRead, suWrite, suImplicit, suRTTI, suString );
    TSymbolUsages = set of TSymbolUsage;
 
    TdwsSymbolDictionary = class;
@@ -586,7 +586,7 @@ var
    symPosList : TSymbolPositionList;
 begin
    if sym=nil then Exit;         // don't add a nil pointer
-   if sym.IsBaseType then Exit;  // don't store references to base symbols
+   //if sym.IsBaseType then Exit;  // don't store references to base symbols
 
    // Check to see if symbol list already exists, if not create it
    symPosList := FindSymbolPosList(sym);

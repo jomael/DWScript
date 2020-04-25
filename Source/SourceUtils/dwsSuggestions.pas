@@ -23,7 +23,7 @@ uses
    Classes, SysUtils,
    dwsExprs, dwsSymbols, dwsErrors, dwsUtils, dwsTokenizer, dwsScriptSource,
    dwsUnitSymbols, dwsPascalTokenizer, dwsCompiler, dwsContextMap, dwsCompilerContext,
-   dwsSymbolDictionary;
+   dwsSymbolDictionary, dwsArrayMethodKinds;
 
 type
 
@@ -124,9 +124,7 @@ type
          FLocalTable : TSymbolTable;
          FContextSymbol : TSymbol;
          FSymbolClassFilter : TSymbolClass;
-         FStaticArrayHelpers : TSymbolTable;
-         FDynArrayHelpers : TSymbolTable;
-         FAssocArrayHelpers : TSymbolTable;
+         FStaticStringHelpers : TSymbolTable;
          FEnumElementHelpers : TSymbolTable;
          FJSONVariantHelpers : TSymbolTable;
          FOptions: TdwsSuggestionsOptions;
@@ -150,7 +148,9 @@ type
                                const args : array of const;
                                forceParenthesis : Boolean = False) : TFuncSymbol;
          procedure AddEnumerationElementHelpers(list : TSimpleSymbolList);
-         procedure AddStaticArrayHelpers(list : TSimpleSymbolList);
+         procedure AddSetOfHelpers(setOf : TSetOfSymbol; list : TSimpleSymbolList);
+         procedure AddStringHelpers(list : TSimpleSymbolList);
+         procedure AddStaticArrayHelpers(a : TArraySymbol; list : TSimpleSymbolList);
          procedure AddDynamicArrayHelpers(dyn : TDynamicArraySymbol; list : TSimpleSymbolList);
          procedure AddAssociativeArrayHelpers(assoc : TAssociativeArraySymbol; list : TSimpleSymbolList);
          procedure AddJSONVariantHelpers(list : TSimpleSymbolList);
@@ -178,6 +178,8 @@ implementation
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
+
+uses dwsSpecialKeywords;
 
 type
    THelperFilter = class (TSimpleSymbolList)
@@ -246,9 +248,7 @@ begin
    FListLookup.Free;
    FList.Free;
    FCleanupList.Clean;
-   FStaticArrayHelpers.Free;
-   FDynArrayHelpers.Free;
-   FAssocArrayHelpers.Free;
+   FStaticStringHelpers.Free;
    FEnumElementHelpers.Free;
    FJSONVariantHelpers.Free;
    inherited;
@@ -283,7 +283,7 @@ var
             Exit(False);
       n:=0;
       inString:=#0;
-      Result:=(codeLine[p]=']') or (codeLine[p]=')');
+      Result := (codeLine[p]=']');// or (codeLine[p]=')');
       while p>=1 do begin
          if inString=#0 then begin
             case codeLine[p] of
@@ -365,7 +365,7 @@ begin
       if (p>1) and (codeLine[p-1]='.') then begin
          FAfterDot:=True;
          Dec(p, 2);
-         arrayItem:=SkipBrackets;
+         arrayItem := SkipBrackets;
          MoveToTokenStart;
          FFullToken := Copy(codeLine, p, FSourcePos.Col-p);
          FPreviousSymbol:=FProg.SymbolDictionary.FindSymbolAtPosition(p, lineNumber+1, FSourceFile.Name);
@@ -522,77 +522,96 @@ begin
       FEnumElementHelpers:=TSymbolTable.Create;
       p:=FProg.ProgramObject.CompilerContext;
       FEnumElementHelpers.AddSymbol(CreateHelper('Name', p.TypString, []));
+      FEnumElementHelpers.AddSymbol(CreateHelper('QualifiedName', p.TypString, []));
       FEnumElementHelpers.AddSymbol(CreateHelper('Value', p.TypInteger, []));
    end;
 
    list.AddSymbolTable(FEnumElementHelpers);
 end;
 
-// AddStaticArrayHelpers
+// AddSetOfHelpers
 //
-procedure TdwsSuggestions.AddStaticArrayHelpers(list : TSimpleSymbolList);
+procedure TdwsSuggestions.AddSetOfHelpers(setOf : TSetOfSymbol; list : TSimpleSymbolList);
+var
+   p: TdwsCompilerContext;
+   amk: TArrayMethodKind;
+begin
+   p := FProg.ProgramObject.CompilerContext;
+   for amk in [
+         amkInclude, amkExclude
+      ] do begin
+      list.Add(setOf.PseudoMethodSymbol(amk, p));
+   end;
+end;
+
+// AddStringHelpers
+//
+procedure TdwsSuggestions.AddStringHelpers(list : TSimpleSymbolList);
 var
    p : TdwsCompilerContext;
 begin
-   if FStaticArrayHelpers=nil then begin
-      FStaticArrayHelpers:=TSymbolTable.Create;
-      p:=FProg.ProgramObject.CompilerContext;
-      FStaticArrayHelpers.AddSymbol(CreateHelper('Low', p.TypInteger, []));
-      FStaticArrayHelpers.AddSymbol(CreateHelper('High', p.TypInteger, []));
-      FStaticArrayHelpers.AddSymbol(CreateHelper('Length', p.TypInteger, []));
+   if FStaticStringHelpers = nil then begin
+      FStaticStringHelpers := TSymbolTable.Create;
+      p := FProg.ProgramObject.CompilerContext;
+      FStaticStringHelpers.AddSymbol(CreateHelper('Low', p.TypInteger, []));
+      FStaticStringHelpers.AddSymbol(CreateHelper('High', p.TypInteger, []));
+      FStaticStringHelpers.AddSymbol(CreateHelper('Length', p.TypInteger, []));
    end;
 
-   list.AddSymbolTable(FStaticArrayHelpers);
+   list.AddSymbolTable(FStaticStringHelpers);
+end;
+
+// AddStaticArrayHelpers
+//
+procedure TdwsSuggestions.AddStaticArrayHelpers(a : TArraySymbol; list : TSimpleSymbolList);
+var
+  p : TdwsCompilerContext;
+  amk : TArrayMethodKind;
+begin
+   p := FProg.ProgramObject.CompilerContext;
+   for amk in [
+         amkLow, amkHigh,
+         amkLength, amkCount
+      ] do begin
+      list.Add(a.PseudoMethodSymbol(amk, p));
+   end;
 end;
 
 // AddDynamicArrayHelpers
 //
 procedure TdwsSuggestions.AddDynamicArrayHelpers(dyn : TDynamicArraySymbol; list : TSimpleSymbolList);
 var
-   p : TdwsCompilerContext;
+  p : TdwsCompilerContext;
+  amk : TArrayMethodKind;
 begin
-   if FDynArrayHelpers=nil then begin
-      p:=FProg.ProgramObject.CompilerContext;
-      FDynArrayHelpers:=TSystemSymbolTable.Create;
-      FDynArrayHelpers.AddSymbol(CreateHelper('Count', p.TypInteger, []));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Add', nil, ['item', dyn.Typ]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Push', nil, ['item', dyn.Typ]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Pop', dyn.Typ, []));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Peek', dyn.Typ, []));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Delete', nil, ['index', dyn.Typ, 'count', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('IndexOf', p.TypInteger, ['item', dyn.Typ, 'fromIndex', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Insert', nil, ['index', p.TypInteger, 'item', dyn.Typ]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Move', nil, ['fromIndex', p.TypInteger, 'toIndex', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('SetLength', nil, ['newLength', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Clear', nil, []));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Remove', p.TypInteger, ['item', dyn.Typ]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Reverse', nil, []));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Swap', nil, ['index1', p.TypInteger, 'index2', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Copy', nil, ['startIndex', p.TypInteger, 'count', p.TypInteger]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Sort', nil, ['comparer', dyn.SortFunctionType(p.TypInteger)]));
-      FDynArrayHelpers.AddSymbol(CreateHelper('Map', nil, ['func', dyn.MapFunctionType(p.TypInteger)]));
+   p := FProg.ProgramObject.CompilerContext;
+   for amk in [
+         amkAdd, amkPush, amkPop, amkPeek, amkDelete, amkRemove, amkInsert,
+         amkIndexOf,
+         amkMove, amkSwap, amkReverse,
+         amkSetLength, amkClear,
+         amkCopy,
+         amkSort, amkMap, amkFilter
+      ] do begin
+      list.Add(dyn.PseudoMethodSymbol(amk, p));
    end;
-
-   list.AddSymbolTable(FDynArrayHelpers);
 end;
 
 // AddAssociativeArrayHelpers
 //
 procedure TdwsSuggestions.AddAssociativeArrayHelpers(assoc : TAssociativeArraySymbol; list : TSimpleSymbolList);
 var
-   p : TdwsCompilerContext;
+  p : TdwsCompilerContext;
+  amk : TArrayMethodKind;
 begin
-   if FAssocArrayHelpers=nil then begin
-      p:=FProg.ProgramObject.CompilerContext;
-      FAssocArrayHelpers:=TSystemSymbolTable.Create;
-      FAssocArrayHelpers.AddSymbol(CreateHelper('Count', p.TypInteger, []));
-      FAssocArrayHelpers.AddSymbol(CreateHelper('Length', p.TypInteger, []));
-      FAssocArrayHelpers.AddSymbol(CreateHelper('Clear', nil, []));
-      FAssocArrayHelpers.AddSymbol(CreateHelper('Delete', nil, ['key', assoc.KeyType]));
-      FAssocArrayHelpers.AddSymbol(CreateHelper('Keys', assoc.KeysArrayType(p.TypInteger), []));
+   p := FProg.ProgramObject.CompilerContext;
+   for amk in [
+         amkCount, amkLength,
+         amkClear, amkDelete,
+         amkKeys
+      ] do begin
+      list.Add(assoc.PseudoMethodSymbol(amk, p));
    end;
-
-   list.AddSymbolTable(FAssocArrayHelpers);
 end;
 
 // AddJSONVariantHelpers
@@ -768,7 +787,7 @@ begin
 
          end else if FPreviousSymbol.Typ is TArraySymbol then begin
 
-            AddStaticArrayHelpers(list);
+            AddStaticArrayHelpers(TArraySymbol(FPreviousSymbol.Typ), list);
             if FPreviousSymbol.Typ is TDynamicArraySymbol then begin
                AddDynamicArrayHelpers(TDynamicArraySymbol(FPreviousSymbol.Typ), list);
             end;
@@ -779,7 +798,7 @@ begin
 
          end else if FPreviousSymbol.Typ is TBaseStringSymbol then begin
 
-            AddStaticArrayHelpers(list);
+            AddStringHelpers(list);
 
          end else if FPreviousSymbol is TEnumerationSymbol then begin
 
@@ -789,6 +808,10 @@ begin
                      or (FPreviousSymbol.Typ is TEnumerationSymbol) then begin
 
             AddEnumerationElementHelpers(list);
+
+         end else if FPreviousSymbol.Typ is TSetOfSymbol then begin
+
+            AddSetOfHelpers(TSetOfSymbol(FPreviousSymbol.Typ), list);
 
          end else if (FPreviousSymbol.Typ is TBaseVariantSymbol) and (FPreviousSymbol.Typ.Name='JSONVariant') then begin
 
@@ -817,6 +840,7 @@ var
    context : TdwsSourceContext;
    funcSym : TFuncSymbol;
    methSym : TMethodSymbol;
+   ownerSym : TCompositeTypeSymbol;
 begin
    if FPreviousSymbol<>nil then Exit;
 
@@ -847,7 +871,8 @@ begin
                   list.AddMembers(TRecordSymbol(context.ParentSym), TRecordSymbol(context.ParentSym), [amoInstance, amoMeta], AddToList, TFieldSymbol);
             end;
             ttPROPERTY : if context.ParentSym is TPropertySymbol then begin
-               list.AddMembers(TPropertySymbol(context.ParentSym).OwnerSymbol, nil, [amoInstance, amoMeta, amoTypedOnly], AddToList);
+               ownerSym := TPropertySymbol(context.ParentSym).OwnerSymbol;
+               list.AddMembers(ownerSym, ownerSym, [amoInstance, amoMeta, amoTypedOnly], AddToList);
                FList.Remove(context.ParentSym);
             end;
             ttIMPLEMENTATION : if context.ParentSym is TUnitMainSymbol then begin
